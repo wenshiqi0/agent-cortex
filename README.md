@@ -49,27 +49,38 @@ here is visible only when a tool session starts **at the agent-cortex root**.
 Sessions started inside an independent git repo (e.g. under `repositories/`) stop
 at that repo's boundary — by design.
 
+## Requirements
+
+| Tool | Why |
+|------|-----|
+| [**bun**](https://bun.sh) | runs the CLI (`scripts/cli.js`) and installs npm-sourced resources (`bun add`) |
+| **git** | clones `github` / `git` sources (and manages this repo) |
+
+No npm/node required — the CLI is pure bun + git, with zero npm dependencies.
+
 ## The manager
 
-```sh
-scripts/cortex <command>
-```
+Run from the agent-cortex root:
 
-Entrypoint is `scripts/cortex` (a `bun` CLI; install bun from https://bun.sh).
-Logic is split across `scripts/` (`cli.js` + `config.js` / `resource.js` /
-`fetch.js` / `commands.js`).
+```sh
+bun run <command>
+```
 
 | Command | Purpose |
 |---------|---------|
-| `install` | bootstrap: relink builtin + restore externals from lock |
-| `install skill <github\|git\|npm> <source> [name]` | install one external skill |
-| `install agent <github\|git\|npm> <source> [name]` | install one external agent |
-| `uninstall <name>` | delete an external resource + links + lock entry |
-| `relink` | rebuild all tool symlinks (builtin + external) |
-| `verify [name]` | recompute hashes vs lock, report drift |
-| `list` | list builtin + external, both kinds |
+| `bun run install` | bootstrap: relink builtin + restore externals from lock |
+| `bun run install skill <github\|git\|npm> <source> [name]` | install one external skill |
+| `bun run install agent <github\|git\|npm> <source> [name]` | install one external agent |
+| `bun run uninstall <name>` | delete an external resource + links + lock entry |
+| `bun run relink` | rebuild all tool symlinks (builtin + external) |
+| `bun run verify [name]` | recompute hashes vs lock, report drift |
+| `bun run list` | list builtin + external, both kinds |
 
 `--ref <branch/tag>` and `--path <dir>` refine a source.
+
+> Agents and tooling invoke the same CLI through `scripts/cortex <command>`; the
+> `bun run` aliases above are the short form for humans. Logic lives in `scripts/`
+> (`cli.js` + `config.js` / `resource.js` / `fetch.js` / `commands.js`).
 
 ## Setup after clone
 
@@ -78,14 +89,14 @@ One command bootstraps everything — relink builtin links and restore any exter
 recorded in the lock:
 
 ```sh
-scripts/cortex install
+bun run install
 ```
 
 ## Usage
 
 - **Builtin skill/agent**: create it under `knowledge/skills/<name>/SKILL.md` or
-  `knowledge/agents/<name>.md`, then run `scripts/cortex relink`.
-- **External skill/agent**: `scripts/cortex install skill|agent <type> <source>` —
+  `knowledge/agents/<name>.md`, then run `bun run relink`.
+- **External skill/agent**: `bun run install skill|agent <type> <source>` —
   never hand-clone.
 - **Rules**: edit `knowledge/AGENTS.md`; root `AGENTS.md`/`CLAUDE.md` follow.
 

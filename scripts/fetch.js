@@ -1,5 +1,6 @@
-// fetch.js — fetch a source tree into a temp dir. Uses git / npm / tar from PATH.
+// fetch.js — fetch a source tree into a temp dir. Uses git + bun from PATH.
 
+import fs from 'fs';
 import path from 'path';
 import { sh, mkdtmp } from './resource.js';
 
@@ -20,8 +21,11 @@ export function fetchGit(url, ref) {
   return t;
 }
 export function fetchNpm(pkg) {
+  // Install the package into a throwaway dir via bun, then read it from node_modules.
   const t = mkdtmp();
-  const tgz = sh('npm', ['pack', pkg, '--silent', '--pack-destination', t]).trim().split('\n').pop();
-  sh('tar', ['-xzf', path.join(t, tgz), '-C', t]);
-  return path.join(t, 'package');
+  fs.writeFileSync(path.join(t, 'package.json'), '{"name":"_cortex_tmp","private":true}\n');
+  sh('bun', ['add', pkg, '--no-save'], { cwd: t });
+  // bun add of "<name>" or "<scope>/<name>@version" installs under node_modules/<name>.
+  const bare = pkg.replace(/@[^/]+$/, '');               // strip trailing @version
+  return path.join(t, 'node_modules', bare);
 }

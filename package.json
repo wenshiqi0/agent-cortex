@@ -1,0 +1,14 @@
+{
+  "name": "agent-cortex",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo template for agent harnesses — shared skills, agents, and rules across coding tools.",
+  "scripts": {
+    "install": "bun scripts/cli.js install",
+    "uninstall": "bun scripts/cli.js uninstall",
+    "relink": "bun scripts/cli.js relink",
+    "verify": "bun scripts/cli.js verify",
+    "list": "bun scripts/cli.js list"
+  }
+}

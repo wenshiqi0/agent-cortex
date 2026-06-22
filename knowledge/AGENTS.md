@@ -89,3 +89,71 @@ subproject's `CLAUDE.md` / `AGENTS.md` if present, and its skills under
 `<subproject>/.claude/skills/`. A subproject's own rules win over anything here.
 The root session starts above the subproject, so its context is NOT auto-injected
 — go look.
+
+## Loop
+
+This is the core loop for developing a subproject under `repositories/`. It is a
+rule for the **top-level orchestrator** (the session whose cwd is the
+agent-cortex root, with full visibility of every skill and every repo). This
+section lives in `AGENTS.md` on purpose: a spawned subagent's cwd is its own
+project directory, so it never sees this file — the orchestrator alone runs the
+loop and decides what to hand down.
+
+### Why a loop is needed
+
+A subproject is an isolated git repo. When work happens with cwd inside
+`repositories/<repo>/`, the agent there is blind to the agent-cortex root: it
+cannot see the shared skills, the rules, or sibling projects. That isolation is
+intentional. The orchestrator's job is to hand the subagent the **coordinates**
+of the capabilities it may need — not the contents.
+
+### The loop (orchestrator steps)
+
+1. **Pick the repo and scope the task.** The repo lives at
+   `repositories/<repo>/`.
+
+2. **Isolate the work in a worktree** per the `feature-workflow` skill:
+   `repositories/<repo>.worktrees/<branch>/`. Never work on the repo's main tree.
+
+3. **Build a path map (paths only — never paste contents).** Resolve absolute
+   paths so the subagent can use them from its own cwd:
+   - shared skills: `<cortex-root>/knowledge/skills/` and `<cortex-root>/skills/`
+   - shared agents: `<cortex-root>/knowledge/agents/` and `<cortex-root>/agents/`
+   - shared rules: `<cortex-root>/knowledge/AGENTS.md`
+   - any **related sibling projects**: `<cortex-root>/repositories/<other>/`
+
+   Skills **and agents** are both shared and discoverable this way — same
+   mechanism, paths only. A subagent can itself spawn further subagents, so it
+   needs the agents directories in its map to find and assign roles to its own
+   children. The orchestrator hands down the agents path; the subagent reads and
+   uses agent definitions on demand, exactly as it does with skills.
+
+4. **Optionally assign a role.** The orchestrator MAY designate one
+   `knowledge/agents/<name>.md` (or external `agents/<name>.md`) as the
+   subagent's persona — its contents become part of the subagent's main system
+   prompt, so the subagent embodies that agent's characteristics. Only the
+   explicitly assigned agent file is included; no other cortex content is.
+
+5. **Spawn the subagent.** Its cwd is the worktree (its own project directory).
+   The spawn prompt contains: the task, the path map, and the instruction —
+   *"When searching, grepping, or recalling context, include these directories
+   in your search scope; read from them on demand. Do not assume they are
+   indexed — go look."* Plus: *"This project's own `CLAUDE.md`/`AGENTS.md` and
+   skills take precedence over anything from the path map."*
+
+6. **Iterate.** The subagent develops inside its isolated cwd, pulling from the
+   mapped paths only as needed. The orchestrator reviews results and re-spawns or
+   refines as the loop requires.
+
+7. **Close out** per `feature-workflow`: PR, check status with `gh`, confirm with
+   the user before releasing the worktree.
+
+### Invariants
+
+- The subagent gets **paths, not pasted bodies**, for both skills and agents
+  (it discovers and reads them on demand, and can assign agent roles to its own
+  children). The single exception is the role agent in step 4, whose body is
+  pasted into the subagent's own system prompt.
+- The orchestrator never does subproject edits on the main working tree itself —
+  it delegates into a worktree.
+- Subproject-local rules always win over the handed-down path map.

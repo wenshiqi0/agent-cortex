@@ -1,0 +1,9 @@
+# Business repos live here but are independent — never tracked by agent-cortex.
+/repositories/
+
+# Feature worktrees (created alongside repos under repositories/).
+*.worktrees/
+
+# OS / editor cruft
+.DS_Store
+*.swp

@@ -4,6 +4,18 @@
 # Feature worktrees (created alongside repos under repositories/).
 *.worktrees/
 
+# External (installed) resources + their lockfiles — keep the template clean.
+/skills/
+/agents/
+
+# Generated tool symlink dirs — rebuilt from knowledge/ + externals via:
+#   scripts/cortex relink   (or: scripts/cortex install, after a fresh clone)
+/.claude/skills/
+/.claude/agents/
+/.cursor/agents/
+/.opencode/agent/
+/.agents/skills/
+
 # OS / editor cruft
 .DS_Store
 *.swp

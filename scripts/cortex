@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# cortex — project management entrypoint for agent-cortex.
+# Runs the bun CLI. Requires bun on PATH.
+set -e
+DIR=$(cd "$(dirname "$0")" && pwd)
+command -v bun >/dev/null 2>&1 || { echo "cortex: bun not found on PATH (https://bun.sh)" >&2; exit 1; }
+exec bun "$DIR/cli.js" "$@"

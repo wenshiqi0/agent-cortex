@@ -30,8 +30,9 @@ agents/<name>.md         external agents (gitignored) + agents/agents-lock.json
 .cursor/agents/<name>.md -> (same)
 .opencode/agent/<name>.md-> (same)
 
-# rules file links (tracked; point at knowledge/AGENTS.md):
-AGENTS.md -> knowledge/AGENTS.md     CLAUDE.md -> knowledge/AGENTS.md
+# rules entrypoints (tracked, thin pointers into knowledge/AGENTS.md):
+CLAUDE.md   first line `@knowledge/AGENTS.md` (Claude Code expands the import)
+AGENTS.md   a short note telling other tools to read knowledge/AGENTS.md
 ```
 
 ## How tools load this (cwd walks up to repo root)
@@ -79,8 +80,9 @@ the per-kind lockfile, and links it into every tool dir.
 
 ## Rule: change shared rules
 
-Edit THIS file (`knowledge/AGENTS.md`). Root `AGENTS.md` and `CLAUDE.md` are
-symlinks to it — every tool picks up the change.
+Edit THIS file (`knowledge/AGENTS.md`) — the single source of truth. Root
+`CLAUDE.md` imports it (`@knowledge/AGENTS.md`) and root `AGENTS.md` points other
+tools at it, so every tool picks up the change without duplication.
 
 ## Rule: load a subproject's own context before working in it
 

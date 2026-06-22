@@ -1,1 +1,1 @@
-knowledge/AGENTS.md
+@knowledge/AGENTS.md

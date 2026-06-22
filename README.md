@@ -37,9 +37,9 @@ agent-cortex/
   .claude/skills/  .agents/skills/
   .claude/agents/  .cursor/agents/  .opencode/agent/
 
-  # tracked links to rules:
-  AGENTS.md -> knowledge/AGENTS.md
-  CLAUDE.md -> knowledge/AGENTS.md
+  # tracked rules entrypoints (thin pointers, not symlinks):
+  CLAUDE.md   -> first line `@knowledge/AGENTS.md` (Claude Code import)
+  AGENTS.md   -> note telling other tools to read knowledge/AGENTS.md
 ```
 
 ## Loading model

@@ -13,6 +13,29 @@ Resources have two origins:
 Tools scan one flat directory per resource. Builtin + external are merged into
 that directory by **per-resource symlinks** managed by `scripts/cortex`.
 
+## Working principles
+
+These apply to every task, in every tool, before reaching for any other rule.
+
+1. **Do only what the task needs — do not spread.** Scope to the request. Don't
+   widen blast radius, don't touch unrelated files, don't investigate adjacent
+   systems "while you're here". When a step pulls you toward sprawl, stop and
+   confirm it's actually required by the task before continuing. Narrow beats
+   thorough-but-off-target.
+
+2. **Check for a usable skill first.** Before improvising, look at the available
+   skills and use one if it fits — a skill encodes the correct, tested path and
+   the gotchas already paid for. Free-styling a capability that a skill already
+   covers re-derives work and risks drift. Skill first, improvisation only when
+   none applies.
+
+3. **Repetitive / mechanical / token-heavy work → consider abstracting a skill.**
+   When a task is something a future agent will redo, is mostly deterministic
+   (queries, commands, builds, scaffolding), or burns large token counts on
+   re-derivation, pause and ask whether it should become a skill. If yes, use the
+   `skill-creator` skill to distill it. Turning recurring work into a script-backed
+   skill is the optimization, not doing it faster by hand each time.
+
 ## Layout
 
 ```
@@ -124,11 +147,9 @@ of the capabilities it may need — not the contents.
    - shared rules: `<cortex-root>/knowledge/AGENTS.md`
    - any **related sibling projects**: `<cortex-root>/repositories/<other>/`
 
-   Skills **and agents** are both shared and discoverable this way — same
-   mechanism, paths only. A subagent can itself spawn further subagents, so it
-   needs the agents directories in its map to find and assign roles to its own
-   children. The orchestrator hands down the agents path; the subagent reads and
-   uses agent definitions on demand, exactly as it does with skills.
+   Skills and agents share this mechanism — paths only, read on demand. A subagent
+   can spawn its own children, so it needs the agents path in its map to assign
+   them roles.
 
 4. **Optionally assign a role.** The orchestrator MAY designate one
    `knowledge/agents/<name>.md` (or external `agents/<name>.md`) as the
@@ -140,8 +161,7 @@ of the capabilities it may need — not the contents.
    The spawn prompt contains: the task, the path map, and the instruction —
    *"When searching, grepping, or recalling context, include these directories
    in your search scope; read from them on demand. Do not assume they are
-   indexed — go look."* Plus: *"This project's own `CLAUDE.md`/`AGENTS.md` and
-   skills take precedence over anything from the path map."*
+   indexed — go look."* (Subproject-local rules win — see Invariants.)
 
 6. **Iterate.** The subagent develops inside its isolated cwd, pulling from the
    mapped paths only as needed. The orchestrator reviews results and re-spawns or
@@ -152,10 +172,10 @@ of the capabilities it may need — not the contents.
 
 ### Invariants
 
-- The subagent gets **paths, not pasted bodies**, for both skills and agents
-  (it discovers and reads them on demand, and can assign agent roles to its own
-  children). The single exception is the role agent in step 4, whose body is
-  pasted into the subagent's own system prompt.
-- The orchestrator never does subproject edits on the main working tree itself —
-  it delegates into a worktree.
-- Subproject-local rules always win over the handed-down path map.
+- The subagent gets **paths, not pasted bodies** — for skills and agents alike.
+  Sole exception: the role agent from step 4, whose body is pasted into the
+  subagent's system prompt.
+- The orchestrator never edits a subproject on its main working tree — it always
+  delegates into a worktree (per `feature-workflow`).
+- Subproject-local rules always win over the handed-down path map (and over this
+  file).

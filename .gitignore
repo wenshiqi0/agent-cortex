@@ -8,6 +8,9 @@
 /skills/
 /agents/
 
+# Local cortex-mem audit store.
+/.cortex-mem/
+
 # Generated tool symlink dirs — rebuilt from knowledge/ + externals via:
 #   scripts/cortex relink   (or: scripts/cortex install, after a fresh clone)
 /.claude/skills/

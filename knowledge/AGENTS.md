@@ -6,9 +6,9 @@ tools (Claude Code, Codex, Cursor, opencode).
 Resources have two origins:
 
 - **builtin** — ship with the template, live in `knowledge/{skills,agents}/`,
-  tracked by git. This is the template's own product.
+tracked by git. This is the template's own product.
 - **external** — installed from a source (github/git/npm), live in
-  `./{skills,agents}/`, **gitignored** so the template stays clean.
+`./{skills,agents}/`, **gitignored** so the template stays clean.
 
 Tools scan one flat directory per resource. Builtin + external are merged into
 that directory by **per-resource symlinks** managed by `scripts/cortex`.
@@ -18,19 +18,17 @@ that directory by **per-resource symlinks** managed by `scripts/cortex`.
 These apply to every task, in every tool, before reaching for any other rule.
 
 1. **Do only what the task needs — do not spread.** Scope to the request. Don't
-   widen blast radius, don't touch unrelated files, don't investigate adjacent
+  widen blast radius, don't touch unrelated files, don't investigate adjacent
    systems "while you're here". When a step pulls you toward sprawl, stop and
    confirm it's actually required by the task before continuing. Narrow beats
    thorough-but-off-target.
-
 2. **Check for a usable skill first.** Before improvising, look at the available
-   skills and use one if it fits — a skill encodes the correct, tested path and
+  skills and use one if it fits — a skill encodes the correct, tested path and
    the gotchas already paid for. Free-styling a capability that a skill already
    covers re-derives work and risks drift. Skill first, improvisation only when
    none applies.
-
 3. **Repetitive / mechanical / token-heavy work → consider abstracting a skill.**
-   When a task is something a future agent will redo, is mostly deterministic
+  When a task is something a future agent will redo, is mostly deterministic
    (queries, commands, builds, scaffolding), or burns large token counts on
    re-derivation, pause and ask whether it should become a skill. If yes, use the
    `skill-creator` skill to distill it. Turning recurring work into a script-backed
@@ -45,6 +43,8 @@ knowledge/
   agents/<name>.md         builtin agents
 skills/<name>/           external skills (gitignored) + skills/skills-lock.json
 agents/<name>.md         external agents (gitignored) + agents/agents-lock.json
+repositories/<repo>/     business repos live here as independent git repos
+                         and are gitignored by agent-cortex
 
 # generated symlink dirs (gitignored; rebuilt by `relink`):
 .claude/skills/<name>    -> knowledge/skills/<name>  OR  skills/<name>
@@ -60,11 +60,13 @@ AGENTS.md   a short note telling other tools to read knowledge/AGENTS.md
 
 ## How tools load this (cwd walks up to repo root)
 
-| Resource | Claude Code | Codex | Cursor | opencode |
-|----------|-------------|-------|--------|----------|
+
+| Resource | Claude Code      | Codex            | Cursor           | opencode                            |
+| -------- | ---------------- | ---------------- | ---------------- | ----------------------------------- |
 | skills   | `.claude/skills` | `.agents/skills` | `.claude/skills` | `.claude/skills` / `.agents/skills` |
-| agents   | `.claude/agents` | (n/a) | `.cursor/agents` | `.opencode/agent` |
-| rules    | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` | `AGENTS.md` |
+| agents   | `.claude/agents` | (n/a)            | `.cursor/agents` | `.opencode/agent`                   |
+| rules    | `CLAUDE.md`      | `AGENTS.md`      | `AGENTS.md`      | `AGENTS.md`                         |
+
 
 Codex pure-`config.toml` agents are intentionally NOT handled — agent defs are
 markdown only.
@@ -90,10 +92,10 @@ restores any external recorded in the lock.
 ## Rule: add or change a BUILTIN skill/agent
 
 1. Edit under `knowledge/skills/<name>/SKILL.md` or `knowledge/agents/<name>.md`.
-   Agents use the richest frontmatter (`name`, `description`, `tools`, `model`,
+  Agents use the richest frontmatter (`name`, `description`, `tools`, `model`,
    ...); unknown fields are ignored per tool.
 2. Run `scripts/cortex relink` (only needed when adding/removing a resource, not
-   for in-place edits).
+  for in-place edits).
 
 ## Rule: install an EXTERNAL skill/agent
 
@@ -135,47 +137,44 @@ of the capabilities it may need — not the contents.
 ### The loop (orchestrator steps)
 
 1. **Pick the repo and scope the task.** The repo lives at
-   `repositories/<repo>/`.
-
+  `repositories/<repo>/`. This directory is intentionally gitignored by
+   agent-cortex, so repo-wide search or git status from the root may not reveal
+   it. If the user names a project, check `repositories/<name>/` directly before
+   concluding it is absent.
 2. **Isolate the work in a worktree** per the `feature-workflow` skill:
-   `repositories/<repo>.worktrees/<branch>/`. Never work on the repo's main tree.
-
+  `repositories/<repo>.worktrees/<branch>/`. Never work on the repo's main tree.
 3. **Build a path map (paths only — never paste contents).** Resolve absolute
-   paths so the subagent can use them from its own cwd:
-   - shared skills: `<cortex-root>/knowledge/skills/` and `<cortex-root>/skills/`
-   - shared agents: `<cortex-root>/knowledge/agents/` and `<cortex-root>/agents/`
-   - shared rules: `<cortex-root>/knowledge/AGENTS.md`
-   - any **related sibling projects**: `<cortex-root>/repositories/<other>/`
-
+  paths so the subagent can use them from its own cwd:
+  - shared skills: `<cortex-root>/knowledge/skills/` and `<cortex-root>/skills/`
+  - shared agents: `<cortex-root>/knowledge/agents/` and `<cortex-root>/agents/`
+  - shared rules: `<cortex-root>/knowledge/AGENTS.md`
+  - any **related sibling projects**: `<cortex-root>/repositories/<other>/`
    Skills and agents share this mechanism — paths only, read on demand. A subagent
    can spawn its own children, so it needs the agents path in its map to assign
    them roles.
-
 4. **Optionally assign a role.** The orchestrator MAY designate one
-   `knowledge/agents/<name>.md` (or external `agents/<name>.md`) as the
+  `knowledge/agents/<name>.md` (or external `agents/<name>.md`) as the
    subagent's persona — its contents become part of the subagent's main system
    prompt, so the subagent embodies that agent's characteristics. Only the
    explicitly assigned agent file is included; no other cortex content is.
-
 5. **Spawn the subagent.** Its cwd is the worktree (its own project directory).
-   The spawn prompt contains: the task, the path map, and the instruction —
+  The spawn prompt contains: the task, the path map, and the instruction —
    *"When searching, grepping, or recalling context, include these directories
    in your search scope; read from them on demand. Do not assume they are
    indexed — go look."* (Subproject-local rules win — see Invariants.)
-
 6. **Iterate.** The subagent develops inside its isolated cwd, pulling from the
-   mapped paths only as needed. The orchestrator reviews results and re-spawns or
+  mapped paths only as needed. The orchestrator reviews results and re-spawns or
    refines as the loop requires.
-
 7. **Close out** per `feature-workflow`: PR, check status with `gh`, confirm with
-   the user before releasing the worktree.
+  the user before releasing the worktree.
 
 ### Invariants
 
 - The subagent gets **paths, not pasted bodies** — for skills and agents alike.
-  Sole exception: the role agent from step 4, whose body is pasted into the
-  subagent's system prompt.
+Sole exception: the role agent from step 4, whose body is pasted into the
+subagent's system prompt.
 - The orchestrator never edits a subproject on its main working tree — it always
-  delegates into a worktree (per `feature-workflow`).
+delegates into a worktree (per `feature-workflow`).
 - Subproject-local rules always win over the handed-down path map (and over this
-  file).
+file).
+

@@ -8,6 +8,7 @@
     "install": "bun scripts/cli.js install",
     "uninstall": "bun scripts/cli.js uninstall",
     "mem": "bun scripts/cortex-mem.js",
+    "inventory": "bun scripts/cortex-inventory.js",
     "relink": "bun scripts/cli.js relink",
     "verify": "bun scripts/cli.js verify",
     "list": "bun scripts/cli.js list"

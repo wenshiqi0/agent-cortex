@@ -33,6 +33,31 @@ These apply to every task, in every tool, before reaching for any other rule.
    re-derivation, pause and ask whether it should become a skill. If yes, use the
    `skill-creator` skill to distill it. Turning recurring work into a script-backed
    skill is the optimization, not doing it faster by hand each time.
+4. **Start every user turn with `mrain` recall.** This is mandatory. Before
+   answering, planning, searching, or editing for a user turn, first load the
+   `mrain` skill (`knowledge/skills/mrain/SKILL.md`, or the generated
+   `.claude/skills/mrain/SKILL.md` / `.agents/skills/mrain/SKILL.md` link), then
+   generate a concise task-specific query parameter from the user's request,
+   repo/project names, files, commands, and relevant domain terms. Run
+   `mrain memory recall --query "..."` with that generated query, read the
+   results, and apply any relevant recalled facts. If recall returns nothing,
+   continue normally.
+5. **End every user turn with `mrain` memory.** This is mandatory. Before the
+   final response for each user turn, first load the `mrain` skill
+   (`knowledge/skills/mrain/SKILL.md`, or the generated `.claude/skills/mrain/SKILL.md` /
+   `.agents/skills/mrain/SKILL.md` link), then run
+   `mrain memory memorize --source-kind agent --source-model "<current-model>" --text "..."`
+   with a concise memory of reusable facts from the completed work. Remember
+   decisions, repo conventions, commands that worked, and important caveats; skip
+   noisy transcripts, secrets, and facts that are too local to matter later.
+6. **Search ignored resource directories explicitly.** `skills/`, `agents/`,
+   `repositories/`, and generated tool dirs such as `.claude/skills/` are
+   intentionally gitignored, so default repo-wide grep/search may skip them. When
+   looking for skills, agents, or subprojects, first run `bun run inventory`
+   (or `bun scripts/cortex-inventory.js --json`) to get the current explicit
+   paths, then search/read those concrete paths directly. Do not conclude a
+   skill, agent, or repo is absent from a root-level search that respected
+   `.gitignore`.
 
 ## Layout
 

@@ -55,10 +55,11 @@ at that repo's boundary — by design.
 |------|-----|
 | [**bun**](https://bun.sh) | runs the CLI (`scripts/cli.js`) and installs npm-sourced resources (`bun add`) |
 | **git** | clones `github` / `git` sources (and manages this repo) |
-| [**Qdrant**](https://qdrant.tech) | required by `cortex-mem` for local semantic memory search; run as a local binary/service reachable from this machine, no Docker required |
+| **mrain** | external memory CLI used by the builtin `mrain` skill and turn-level recall/memorize rules |
+| [**Qdrant**](https://qdrant.tech) | external vector store used by `mrain` for semantic memory search; run as a local binary/service reachable from this machine, no Docker required |
 
 No npm/node required — the CLI is pure bun + git, with zero npm dependencies.
-`cortex-mem` assumes a local Qdrant endpoint is available when semantic memory is
+`mrain` assumes a local Qdrant endpoint is available when semantic memory is
 enabled, typically `http://127.0.0.1:6333`.
 
 ## The manager

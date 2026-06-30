@@ -19,6 +19,10 @@
 /.opencode/agent/
 /.agents/skills/
 
+/node_modules/
+
+/.tmp
+
 # OS / editor cruft
 .DS_Store
 *.swp

@@ -58,6 +58,22 @@ These apply to every task, in every tool, before reaching for any other rule.
    paths, then search/read those concrete paths directly. Do not conclude a
    skill, agent, or repo is absent from a root-level search that respected
    `.gitignore`.
+7. **Keep the session rooted at `agent-cortex`.** The top-level Cursor workspace
+   and orchestrator session must remain at the agent-cortex root. Do not move the
+   agent/workspace root into `repositories/`, a subproject, or a worktree, and do
+   not use persistent `cd` changes merely to discover or access them. Run the
+   inventory command first, then use its explicit absolute paths and set each
+   command's `working_directory` to the required repo or worktree. Creating or
+   selecting a worktree changes the command target, not the session root.
+8. **Use `code-workflow` for development — including agent-cortex itself.** Any
+   feature, bugfix, script/CLI change, skill mechanization, or other
+   plan→test→implement work in this repo or under `repositories/` must follow
+   `knowledge/skills/code-workflow/SKILL.md` (or the linked
+   `.claude/skills/code-workflow/`). Load it before planning. Main session
+   orchestrates only; stages run on the skill's fixed models via fresh
+   subagents. Do not free-style a parallel loop. Pure one-shot prose edits to
+   rules/docs with no tests or behavior change may skip it; when unsure, use
+   `code-workflow`.
 
 ## Layout
 
@@ -200,6 +216,9 @@ Sole exception: the role agent from step 4, whose body is pasted into the
 subagent's system prompt.
 - The orchestrator never edits a subproject on its main working tree — it always
 delegates into a worktree (per `feature-workflow`).
+- The top-level orchestrator remains rooted at agent-cortex. It addresses
+worktrees by explicit path or per-command `working_directory`; it never moves
+the Cursor workspace or orchestrator session root into one.
 - Subproject-local rules always win over the handed-down path map (and over this
 file).
 

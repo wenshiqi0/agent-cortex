@@ -11,6 +11,9 @@
 # Local cortex-mem audit store.
 /.cortex-mem/
 
+# Agent scratch (code-workflow ledger, briefs, reports).
+/.cortex/
+
 # Generated tool symlink dirs — rebuilt from knowledge/ + externals via:
 #   scripts/cortex relink   (or: scripts/cortex install, after a fresh clone)
 /.claude/skills/

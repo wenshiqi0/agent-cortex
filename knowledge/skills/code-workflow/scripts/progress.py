@@ -5,16 +5,17 @@ Ledger default: <worktree-or-root>/.cortex/code-workflow/progress.jsonl
 Archive (compact): same dir history.jsonl
 
 Ops:
-  init       create ledger with goal / worktree / constraints
-  set-plan   attach plan path after Plan stage
-  add-todo   append a todo (id, title, optional brief)
-  mark       mark todo overall status and/or a stage (+ optional artifact)
-  mark-run   mark run-level stage (preflight|plan|closeout)
-  show       fold events → current state (text or --json)
-  next       print next incomplete todo+stage for orchestrator
-  compact    archive done/skipped todos to history.jsonl; rewrite progress
-             as a minimal snapshot (active todos only). Explicit — mark does
-             not auto-compact; run after finishing todos / at closeout.
+  init           create ledger with goal / worktree / constraints
+  set-direction  attach confirmed direction path (direction + direction_confirmed)
+  set-plan       attach plan path after Plan stage
+  add-todo       append a todo (id, title, optional brief)
+  mark           mark todo overall status and/or a stage (+ optional artifact)
+  mark-run       mark run-level stage (preflight|plan|closeout)
+  show           fold events → current state (text or --json)
+  next           print next incomplete todo+stage for orchestrator
+  compact        archive done/skipped todos to history.jsonl; rewrite progress
+                 as a minimal snapshot (active todos only). Explicit — mark does
+                 not auto-compact; run after finishing todos / at closeout.
 
 Examples:
   python3 progress.py compact --worktree "$WT"
@@ -138,6 +139,8 @@ def fold(events: list[dict[str, Any]]) -> dict[str, Any]:
         "goal": "",
         "worktree": "",
         "plan": "",
+        "direction": "",
+        "direction_confirmed": False,
         "constraints": [],
         "run": {s: "pending" for s in RUN_STAGES},
         "todos": {},  # id -> todo
@@ -159,6 +162,8 @@ def fold(events: list[dict[str, Any]]) -> dict[str, Any]:
             state["goal"] = ev.get("goal", "")
             state["worktree"] = ev.get("worktree", "")
             state["plan"] = ev.get("plan", "")
+            state["direction"] = ev.get("direction", "") or ""
+            state["direction_confirmed"] = bool(ev.get("direction_confirmed", False))
             state["constraints"] = list(ev.get("constraints") or [])
             state["run"] = {s: "pending" for s in RUN_STAGES}
             if "run" in ev and isinstance(ev["run"], dict):
@@ -175,6 +180,9 @@ def fold(events: list[dict[str, Any]]) -> dict[str, Any]:
                     continue
                 state["todos"][tid] = copy.deepcopy(todo_src)
                 state["todo_order"].append(tid)
+        elif op == "set-direction":
+            state["direction"] = ev.get("direction", "") or ""
+            state["direction_confirmed"] = bool(ev.get("direction_confirmed", True))
         elif op == "set-plan":
             state["plan"] = ev.get("plan", "")
         elif op == "add-todo":
@@ -240,6 +248,8 @@ def state_as_list(state: dict[str, Any]) -> dict[str, Any]:
         "goal": state["goal"],
         "worktree": state["worktree"],
         "plan": state["plan"],
+        "direction": state.get("direction", ""),
+        "direction_confirmed": bool(state.get("direction_confirmed", False)),
         "constraints": state["constraints"],
         "run": state["run"],
         "todos": todos,
@@ -284,6 +294,25 @@ def cmd_init(args: argparse.Namespace) -> None:
         },
     )
     print(json.dumps({"ok": True, "ledger": str(ledger)}, ensure_ascii=False))
+
+
+def cmd_set_direction(args: argparse.Namespace) -> None:
+    ledger = resolve_ledger(args.ledger, args.worktree)
+    if not ledger.exists():
+        fail(f"ledger missing: {ledger}")
+    path = Path(args.file)
+    if not path.is_file():
+        fail(f"direction file missing: {path}")
+    direction = str(path.resolve())
+    append_event(
+        ledger,
+        {
+            "op": "set-direction",
+            "direction": direction,
+            "direction_confirmed": True,
+        },
+    )
+    print(json.dumps({"ok": True, "direction": direction}, ensure_ascii=False))
 
 
 def cmd_set_plan(args: argparse.Namespace) -> None:
@@ -485,6 +514,8 @@ def cmd_compact(args: argparse.Namespace) -> None:
         "goal": state["goal"],
         "worktree": state["worktree"],
         "plan": state["plan"],
+        "direction": state.get("direction", ""),
+        "direction_confirmed": bool(state.get("direction_confirmed", False)),
         "constraints": list(state["constraints"]),
         "run": copy.deepcopy(state["run"]),
         "todos": active,
@@ -526,6 +557,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--constraint", action="append", default=[])
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser(
+        "set-direction",
+        parents=[common],
+        help="attach confirmed direction path",
+    )
+    sp.add_argument("--file", required=True, help="path to direction.md")
+    sp.set_defaults(func=cmd_set_direction)
 
     sp = sub.add_parser("set-plan", parents=[common], help="attach plan path")
     sp.add_argument("--plan", required=True)

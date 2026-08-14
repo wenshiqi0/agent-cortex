@@ -58,22 +58,51 @@ These apply to every task, in every tool, before reaching for any other rule.
    paths, then search/read those concrete paths directly. Do not conclude a
    skill, agent, or repo is absent from a root-level search that respected
    `.gitignore`.
-7. **Keep the session rooted at `agent-cortex`.** The top-level Cursor workspace
-   and orchestrator session must remain at the agent-cortex root. Do not move the
-   agent/workspace root into `repositories/`, a subproject, or a worktree, and do
-   not use persistent `cd` changes merely to discover or access them. Run the
-   inventory command first, then use its explicit absolute paths and set each
-   command's `working_directory` to the required repo or worktree. Creating or
-   selecting a worktree changes the command target, not the session root.
+7. **Keep the session rooted at `agent-cortex` — hard rule, no exceptions.**
+   The top-level Cursor workspace and orchestrator session **must** stay at the
+   agent-cortex root for the whole conversation. **Forbidden:**
+   `move_agent_to_root` / any MCP or UI action that relocates the agent or
+   workspace root into `repositories/`, a subproject, or a worktree; persistent
+   `cd` into those trees just to browse. Doing so triggers workspace “Changes”
+   dialogs, blinds the orchestrator to shared skills/agents, and violates this
+   file. **Allowed (and required when useful):** open a path with the `code`
+   CLI (`code /abs/path/to/worktree`) so the user can view it in an editor —
+   that is **open a folder**, not **switch the session root**. Also: run
+   inventory first, then use absolute paths and set each Shell command's
+   `working_directory` to the repo/worktree. Creating or selecting a worktree
+   changes the **command target only**, never the session root.
 8. **Use `code-workflow` for development — including agent-cortex itself.** Any
    feature, bugfix, script/CLI change, skill mechanization, or other
    plan→test→implement work in this repo or under `repositories/` must follow
    `knowledge/skills/code-workflow/SKILL.md` (or the linked
    `.claude/skills/code-workflow/`). Load it before planning. Main session
    orchestrates only; stages run on the skill's fixed models via fresh
-   subagents. Do not free-style a parallel loop. Pure one-shot prose edits to
+   subagents. Do not free-style a parallel loop. **Implement / Verify GREEN /
+   Closeout must run the target repo's lint/fmt/typecheck (same as CI) before
+   commit or push** — tests alone are not enough. Pure one-shot prose edits to
    rules/docs with no tests or behavior change may skip it; when unsure, use
    `code-workflow`.
+9. **Route by unresolved design decisions and complexity — never by domain
+   label.** Whether to brainstorm / write a spec / run Full Loop depends on
+   open design choices and observable complexity, not on the task name.
+   If the user already gave exact target files, keys/values, environment, and
+   operation, and there is **no** design choice left (mechanical edit), go
+   straight into `code-workflow` lane classification — **do not** brainstorm
+   or write a spec first. Calling the work `config`, `auth`, `infra`, or
+   `billing` alone must **not** force Full Loop or veto Fast Lane; judge
+   semantic impact and complexity dimensions inside `code-workflow`.
+10. **Prefer Kimi K3 Max for code-writing; Grok is a bounded fallback.** For
+    stages that actively write source code, test code, or automation scripts,
+    primary model is `kimi-k3-max`; use `cursor-grok-4.5-high` only as a
+    bounded fallback when K3 is unavailable or resource-exhausted, and only
+    when the prompt includes exact edit scope plus verification commands.
+    Research, planning, requirements and architecture analysis, issue
+    diagnosis, reproduction discovery, log/metric review, Grafana/Kubernetes/
+    Postgres/Redis/Athena operations, code review, test or CI verification,
+    acceptance checking, and prose-only rule/skill/doc editing default to
+    `kimi-k3-max`. Merely reading code or running commands is not a Grok role.
+    Conflicting skill-specific routing is invalid; fail fast instead of
+    inheriting, substituting, or silently using Grok.
 
 ## Layout
 
@@ -217,8 +246,10 @@ subagent's system prompt.
 - The orchestrator never edits a subproject on its main working tree — it always
 delegates into a worktree (per `feature-workflow`).
 - The top-level orchestrator remains rooted at agent-cortex. It addresses
-worktrees by explicit path or per-command `working_directory`; it never moves
-the Cursor workspace or orchestrator session root into one.
+worktrees by explicit path, per-command `working_directory`, or `code <path>`
+to open a folder for the user. It **never** moves the Cursor workspace or
+orchestrator session root into a repo/worktree (`move_agent_to_root` and
+equivalents are banned). Open ≠ switch root.
 - Subproject-local rules always win over the handed-down path map (and over this
 file).
 

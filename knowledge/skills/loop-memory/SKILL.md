@@ -1,6 +1,6 @@
 ---
 name: loop-memory
-description: "Use when sequential subagents work the same task across loop passes and need shared per-loop context — a passive cognition store so each agent avoids repeated repo exploration. Stores files, decisions, RED test results, and verdicts per loop; inject snapshot output into the next agent's prompt."
+description: "Use when sequential subagents work the same task across loop passes and need shared per-loop context — a passive cognition store so each agent avoids repeated repo exploration. Stores files, decisions, RED test results, and verdicts per loop; the orchestrator writes each snapshot via `snapshot --out <path>` and hands the next stage the snapshot file path as an ordinary input — snapshot JSON is never pasted into a prompt."
 ---
 
 # loop-memory
@@ -33,14 +33,23 @@ python3 knowledge/skills/loop-memory/loop-memory.py archive D1 --to /tmp/loop-ar
 
 - `put --patch` is an RFC 7396 merge patch into `stages.<stage>`; `--stage` is `WT | IMPL | VER`.
 - `add-file` keys are `files` (WT/VER) vs `files_touched` (IMPL), deduped by path.
-- `snapshot --through-stage X` exports cumulative state up to and including X — this is the blob to inject into the next agent's prompt.
+- `snapshot --through-stage X --out <path>` writes cumulative state up to and
+  including X to a file. The orchestrator hands that snapshot **file path** to
+  the next stage as an ordinary input — snapshot JSON is never pasted into a
+  prompt.
 - `archive` moves a finished loop out of the active session dir.
 - Writes are atomic and last-writer-wins.
 
-## Subagent contract
+## Orchestrator contract
 
-- On start: `loop-memory get <loop_id>`
-- On end: `loop-memory put <loop_id> --stage <STAGE> --patch '<json>'`
+- The orchestrator runs every CLI call: `init` at task start, fold cognition
+  (`put` / `add-file` / `add-decision` / `set-test` / `set-verdict`) after
+  each accepted stage, `snapshot --out <path>` before the next stage, and
+  `archive --to <dir>` when the loop is done.
+- The orchestrator hands the next stage only the snapshot **file path** as an
+  ordinary input — the snapshot JSON itself is never pasted into a prompt.
+- Execution subagents never run this CLI and never see a loop id or the
+  `WT | IMPL | VER` stage names.
 - Subagents MUST NOT call any `mrain` subcommand.
 - Subagents MUST NOT read other loops' context (unless the orchestrator explicitly authorizes).
 

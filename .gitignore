@@ -24,6 +24,8 @@
 
 /node_modules/
 
+__pycache__
+
 /.tmp
 
 # OS / editor cruft

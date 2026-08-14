@@ -27,6 +27,7 @@ python3 knowledge/skills/loop-memory/loop-memory.py set-verdict D1 --stage VER -
 python3 knowledge/skills/loop-memory/loop-memory.py snapshot D1 --through-stage IMPL --out /tmp/d1.json
 python3 knowledge/skills/loop-memory/loop-memory.py list
 python3 knowledge/skills/loop-memory/loop-memory.py archive D1 --to /tmp/loop-archive
+python3 knowledge/skills/loop-memory/loop-memory.py doctor
 ```
 
 ## Semantics

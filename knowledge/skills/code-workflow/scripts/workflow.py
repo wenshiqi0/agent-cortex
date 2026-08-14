@@ -9,31 +9,30 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
 TODO_STAGES = ("test_write", "verify_red", "implement", "verify_green")
-RUN_DIRS = ("briefs", "reports", "snapshots", "loop-memory", "loop-memory-archive")
+RUN_DIRS = (
+    "briefs",
+    "reports",
+    "snapshots",
+    "loop-memory",
+    "loop-memory-archive",
+    "artifacts",
+)
 
 STAGE_ROLE = {
-    "test_write": "test_writer",
-    "verify_red": "verify_red",
-    "implement": "implement",
-    "verify_green": "verify_green",
-}
-
-# role -> (primary model, fallback_models)
-ROLE_MODELS: dict[str, tuple[str, list[str]]] = {
-    "plan": ("kimi-k3-max", []),
-    "test_writer": ("kimi-k3-max", ["cursor-grok-4.5-high"]),
-    "verify_red": ("kimi-k3-max", []),
-    "implement": ("kimi-k3-max", ["cursor-grok-4.5-high"]),
-    "verify_green": ("kimi-k3-max", []),
-    "fast_coder_code": ("kimi-k3-max", ["cursor-grok-4.5-high"]),
-    "fast_coder_prose": ("kimi-k3-max", []),
+    "test_write": "code-workflow-test-writer",
+    "verify_red": "code-workflow-verifier",
+    "implement": "code-workflow-implementer",
+    "verify_green": "code-workflow-verifier",
 }
 
 STAGE_SCOPE = {
@@ -64,6 +63,17 @@ STAGE_CONSTRAINTS = {
         "read-only; run tests; do not edit production or test code",
     ],
 }
+
+ARTIFACT_POLICY = [
+    "write required outputs only to caller-given paths",
+    "put transient evidence only in artifact_dir",
+    "never create repo-root artifacts/",
+    "never persist secrets",
+]
+
+PLAN_CONSTRAINTS = [
+    "write only plan and briefs; no source, tests, or other docs",
+]
 
 # After accepting stage S, snapshot through this cognition stage (skip after verify_green).
 STAGE_SNAPSHOT_THROUGH = {
@@ -195,6 +205,18 @@ def abs_path(p: str | Path) -> str:
     return str(Path(p).resolve())
 
 
+def goal_slug(goal: str) -> str:
+    """Lowercase [a-z0-9-] slug, max 24 chars, for Fast Lane artifact dirs."""
+    slug = re.sub(r"[^a-z0-9]+", "-", goal.lower()).strip("-")
+    slug = re.sub(r"-+", "-", slug)[:24].rstrip("-")
+    return slug or "goal"
+
+
+def ensure_artifact_dir(path: Path) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    return abs_path(path)
+
+
 def next_pending_stage(todo: dict[str, Any]) -> str | None:
     for stage in TODO_STAGES:
         if todo["stages"].get(stage) in ("pending", "in_progress"):
@@ -234,7 +256,6 @@ def build_dispatch(
     stage: str,
 ) -> dict[str, Any]:
     role = STAGE_ROLE[stage]
-    model, fallbacks = ROLE_MODELS[role]
     brief = abs_path(todo.get("brief") or "")
     report = abs_path(run_dir(worktree) / "reports" / f"{todo['id']}.{stage}.md")
     snap_tag = SNAPSHOT_IN_FOR_STAGE[stage]
@@ -245,16 +266,38 @@ def build_dispatch(
     inputs.extend(prior_report_paths(todo, stage))
     if snap_in:
         inputs.append(snap_in)
+    artifact_dir = ensure_artifact_dir(
+        run_dir(worktree) / "artifacts" / todo["id"]
+    )
     return {
         "role": role,
-        "model": model,
-        "fallback_models": list(fallbacks),
         "goal": STAGE_GOAL[stage],
         "inputs": inputs,
-        "constraints": list(STAGE_CONSTRAINTS[stage]),
+        "constraints": list(STAGE_CONSTRAINTS[stage]) + list(ARTIFACT_POLICY),
         "report_path": report,
         "allowed_edit_scope": list(STAGE_SCOPE[stage]),
         "snapshot_in": snap_in,
+        "artifact_dir": artifact_dir,
+    }
+
+
+def build_plan_dispatch(*, worktree: Path, state: dict[str, Any]) -> dict[str, Any]:
+    rd = run_dir(worktree)
+    direction = abs_path(state.get("direction") or "")
+    artifact_dir = ensure_artifact_dir(rd / "artifacts" / "plan")
+    return {
+        "role": "code-workflow-planner",
+        "goal": "Expand the confirmed direction into a plan and per-task briefs",
+        "inputs": [direction],
+        "outputs": {
+            "plan": abs_path(rd / "plan.md"),
+            "briefs_dir": abs_path(rd / "briefs"),
+        },
+        "constraints": list(PLAN_CONSTRAINTS) + list(ARTIFACT_POLICY),
+        "report_path": abs_path(rd / "reports" / "plan.md"),
+        "allowed_edit_scope": ["plan-docs"],
+        "snapshot_in": None,
+        "artifact_dir": artifact_dir,
     }
 
 
@@ -489,6 +532,21 @@ def cmd_accept_stage(args: argparse.Namespace) -> None:
 def cmd_next(args: argparse.Namespace) -> None:
     worktree = wt_path(args.worktree)
     state = load_state(worktree)
+    run_block = {
+        "goal": state.get("goal", ""),
+        "worktree": str(worktree),
+        "plan": state.get("plan") or "",
+        "direction": state.get("direction") or "",
+    }
+    if state["direction_confirmed"] and state["run"]["plan"] != "done":
+        payload = {
+            "done": False,
+            "run": run_block,
+            "stage": "plan",
+            "dispatch": build_plan_dispatch(worktree=worktree, state=state),
+        }
+        print(json.dumps(payload, ensure_ascii=False))
+        return
     for todo in state.get("todos") or []:
         if todo.get("status") in ("done", "skipped"):
             continue
@@ -499,12 +557,7 @@ def cmd_next(args: argparse.Namespace) -> None:
             continue
         payload = {
             "done": False,
-            "run": {
-                "goal": state.get("goal", ""),
-                "worktree": str(worktree),
-                "plan": state.get("plan") or "",
-                "direction": state.get("direction") or "",
-            },
+            "run": run_block,
             "task": {
                 "id": todo["id"],
                 "title": todo.get("title") or "",
@@ -542,6 +595,21 @@ def loop_files_remain(worktree: Path) -> list[Path]:
 
 def cmd_closeout(args: argparse.Namespace) -> None:
     worktree = wt_path(args.worktree)
+    for cmd_str in args.verify_cmd or []:
+        argv = shlex.split(cmd_str)
+        if not argv:
+            fail(f"empty --verify-cmd: {cmd_str!r}")
+        proc = subprocess.run(
+            argv,
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            out = (proc.stdout or "") + (proc.stderr or "")
+            if out:
+                sys.stderr.write(out if out.endswith("\n") else out + "\n")
+            fail(f"verify-cmd failed ({proc.returncode}): {cmd_str}")
     state = load_state(worktree)
     todos = state.get("todos") or []
     pending = [t for t in todos if t.get("status") not in ("done", "skipped")]
@@ -555,26 +623,143 @@ def cmd_closeout(args: argparse.Namespace) -> None:
     ack()
 
 
+def default_tests_dir() -> Path:
+    return SCRIPTS_DIR.parent / "tests"
+
+
+def cmd_test(args: argparse.Namespace) -> None:
+    tests_dir = Path(args.tests_dir) if args.tests_dir else default_tests_dir()
+    if not tests_dir.is_dir():
+        fail(f"tests dir missing: {tests_dir}")
+    files = sorted(p for p in tests_dir.glob("test_*.py") if p.is_file())
+    failed = 0
+    for path in files:
+        proc = subprocess.run(
+            [sys.executable, str(path)],
+            capture_output=True,
+            text=True,
+        )
+        status = "PASS" if proc.returncode == 0 else "FAIL"
+        print(f"{status} {path.name}")
+        if proc.returncode != 0:
+            failed += 1
+    sys.exit(1 if failed else 0)
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Read-only consistency check over ledger + expected artifact paths."""
+    worktree = wt_path(args.worktree)
+    checks: list[dict[str, Any]] = []
+
+    proc = run_progress(worktree, "show", "--json", check=False)
+    if proc.returncode != 0:
+        checks.append(
+            {
+                "status": "FAIL",
+                "name": "ledger",
+                "detail": proc_error_text(proc, "progress show"),
+            }
+        )
+        _emit_doctor(checks, json_mode=args.json)
+        sys.exit(1)
+
+    checks.append(
+        {"status": "OK", "name": "ledger", "detail": "progress show --json ok"}
+    )
+    state = json.loads(proc.stdout)
+
+    if state.get("direction_confirmed"):
+        direction = state.get("direction") or str(run_dir(worktree) / "direction.md")
+        if Path(direction).is_file():
+            checks.append({"status": "OK", "name": "direction", "detail": direction})
+        else:
+            checks.append(
+                {"status": "FAIL", "name": "direction", "detail": f"missing {direction}"}
+            )
+
+    if (state.get("run") or {}).get("plan") == "done":
+        plan = state.get("plan") or str(run_dir(worktree) / "plan.md")
+        if plan and Path(plan).is_file():
+            checks.append({"status": "OK", "name": "plan", "detail": plan})
+        else:
+            checks.append(
+                {
+                    "status": "FAIL",
+                    "name": "plan",
+                    "detail": f"missing {plan or '(empty)'}",
+                }
+            )
+
+    for todo in state.get("todos") or []:
+        tid = todo.get("id") or "?"
+        brief = todo.get("brief") or ""
+        if brief and Path(brief).is_file():
+            checks.append({"status": "OK", "name": "brief", "detail": f"{tid} {brief}"})
+        else:
+            checks.append(
+                {
+                    "status": "FAIL",
+                    "name": "brief",
+                    "detail": f"{tid} missing {brief or '(empty)'}",
+                }
+            )
+        if todo.get("status") not in ("done", "skipped"):
+            loop_path = run_dir(worktree) / "loop-memory" / "default" / f"{tid}.json"
+            if loop_path.is_file():
+                checks.append(
+                    {"status": "OK", "name": "loop", "detail": f"{tid} {loop_path}"}
+                )
+            else:
+                checks.append(
+                    {
+                        "status": "FAIL",
+                        "name": "loop",
+                        "detail": f"{tid} missing {loop_path}",
+                    }
+                )
+
+    ok = all(c["status"] == "OK" for c in checks)
+    _emit_doctor(checks, json_mode=args.json)
+    sys.exit(0 if ok else 1)
+
+
+def _emit_doctor(checks: list[dict[str, Any]], *, json_mode: bool) -> None:
+    ok = all(c["status"] == "OK" for c in checks)
+    if json_mode:
+        print(json.dumps({"checks": checks, "ok": ok}, ensure_ascii=False))
+    else:
+        for c in checks:
+            print(f"{c['status']} {c['name']} {c['detail']}")
+
+
 def cmd_fast(args: argparse.Namespace) -> None:
     worktree = wt_path(args.worktree)
     kind = args.kind
-    key = f"fast_coder_{kind}"
-    model, fallbacks = ROLE_MODELS[key]
+    role = (
+        "code-workflow-implementer"
+        if kind == "code"
+        else "code-workflow-prose-editor"
+    )
     files = [abs_path(f) if Path(f).exists() else f for f in (args.files or [])]
     verify = list(args.verify or [])
+    artifact_dir = ensure_artifact_dir(
+        run_dir(worktree)
+        / "artifacts"
+        / f"fast-{goal_slug(args.goal)}-{uuid.uuid4().hex[:8]}"
+    )
     dispatch = {
-        "role": "fast_coder",
-        "model": model,
-        "fallback_models": list(fallbacks),
+        "role": role,
         "goal": args.goal,
         "inputs": files,
         "constraints": [
             "edit only the listed files",
             ("verify with: " + " && ".join(verify)) if verify else "run the listed verify commands",
-        ],
+        ]
+        + list(ARTIFACT_POLICY),
         "report_path": "",
         "allowed_edit_scope": ["task-scope"] if kind == "code" else ["read-only"],
         "snapshot_in": None,
+        "artifact_dir": artifact_dir,
     }
     print(
         json.dumps(
@@ -644,7 +829,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_show)
 
     sp = sub.add_parser("closeout", parents=[common], help="mark closeout + compact")
+    sp.add_argument(
+        "--verify-cmd",
+        action="append",
+        default=[],
+        dest="verify_cmd",
+        help="run before closeout checks (repeatable; shlex.split, no shell)",
+    )
     sp.set_defaults(func=cmd_closeout)
+
+    sp = sub.add_parser(
+        "doctor",
+        parents=[common],
+        help="read-only ledger/artifact consistency check",
+    )
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_doctor)
+
+    sp = sub.add_parser(
+        "test",
+        help="run test_*.py files in skill tests/ (or --tests-dir)",
+    )
+    sp.add_argument(
+        "--tests-dir",
+        default=None,
+        help="directory of test_*.py files (default: skill tests/)",
+    )
+    sp.set_defaults(func=cmd_test)
 
     sp = sub.add_parser("fast", parents=[common], help="stateless fast-lane dispatch")
     sp.add_argument("--kind", required=True, choices=("code", "prose"))

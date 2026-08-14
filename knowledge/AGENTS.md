@@ -76,7 +76,7 @@ These apply to every task, in every tool, before reaching for any other rule.
    plan→test→implement work in this repo or under `repositories/` must follow
    `knowledge/skills/code-workflow/SKILL.md` (or the linked
    `.claude/skills/code-workflow/`). Load it before planning. Main session
-   orchestrates only; stages run on the skill's fixed models via fresh
+   orchestrates only; stages run as the skill's role agents via fresh
    subagents. Do not free-style a parallel loop. **Implement / Verify GREEN /
    Closeout must run the target repo's lint/fmt/typecheck (same as CI) before
    commit or push** — tests alone are not enough. Pure one-shot prose edits to
@@ -91,18 +91,12 @@ These apply to every task, in every tool, before reaching for any other rule.
    or write a spec first. Calling the work `config`, `auth`, `infra`, or
    `billing` alone must **not** force Full Loop or veto Fast Lane; judge
    semantic impact and complexity dimensions inside `code-workflow`.
-10. **Prefer Kimi K3 Max for code-writing; Grok is a bounded fallback.** For
-    stages that actively write source code, test code, or automation scripts,
-    primary model is `kimi-k3-max`; use `cursor-grok-4.5-high` only as a
-    bounded fallback when K3 is unavailable or resource-exhausted, and only
-    when the prompt includes exact edit scope plus verification commands.
-    Research, planning, requirements and architecture analysis, issue
-    diagnosis, reproduction discovery, log/metric review, Grafana/Kubernetes/
-    Postgres/Redis/Athena operations, code review, test or CI verification,
-    acceptance checking, and prose-only rule/skill/doc editing default to
-    `kimi-k3-max`. Merely reading code or running commands is not a Grok role.
-    Conflicting skill-specific routing is invalid; fail fast instead of
-    inheriting, substituting, or silently using Grok.
+10. **Dispatch by workflow role agent — never by model name in rules or
+    skills.** Main's model is chosen by the user and never fixed here. Each
+    role's model is set only in that agent file's frontmatter under
+    `knowledge/agents/`. Skills and prompts must not name models. Conflicting
+    skill-specific routing is invalid; fail fast instead of inheriting or
+    substituting.
 
 ## Layout
 

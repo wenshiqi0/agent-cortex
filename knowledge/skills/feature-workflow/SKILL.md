@@ -34,37 +34,37 @@ repositories/
 ```
 
 Never create the worktree inside `repositories/<repo>/` — it pollutes the repo.
+Listing stays with `bun run inventory --json` (no separate worktree list command).
 
 ## Start the work
 
 ```sh
-cd repositories/<repo>
-git worktree add ../<repo>.worktrees/<branch> -b <branch>
-cd ../<repo>.worktrees/<branch>
+scripts/cortex worktree add --repo <repo> --branch <branch> [--base <base>] [--dry-run]
 ```
 
+Then open/edit under `repositories/<repo>.worktrees/<branch>/` (session root stays
+at agent-cortex; use absolute paths / per-command `working_directory`).
+
 - `<branch>` = a descriptive branch name (`feat/login`, `fix/target-bloat`,
-  `chore/cargo-incremental`, …).
-- Branch off the repo's default branch unless the user says otherwise.
+  `chore/cargo-incremental`, …). Nested names like `feat/x` are kept verbatim.
+- Branch off the repo's default branch unless the user says otherwise (`--base`).
 - Do ALL edits, commits, and the PR from inside this worktree.
 
 ## On completion — release protocol (in order)
 
 Done = work committed and a PR opened. Before removing anything:
 
-1. **Check PR status with `gh`** — do not guess:
+1. **Check PR status** — do not guess:
    ```sh
-   gh pr view <branch> --json state,mergeStateStatus,mergedAt
-   gh pr checks <branch>      # CI status
+   scripts/cortex worktree status --repo <repo> --branch <branch> [--json]
    ```
 2. **Report to the user**: PR merged? CI green? Then **ask explicitly** whether
    to release the worktree. Do NOT auto-remove.
-3. **Only after the user confirms**, release:
+3. **Only after the user confirms**, release (`--yes` only after that confirmation):
    ```sh
-   cd repositories/<repo>
-   git worktree remove ../<repo>.worktrees/<branch>
-   git branch -d <branch>     # -d (safe). -D only if the user confirms force.
+   scripts/cortex worktree release --repo <repo> --branch <branch> --yes
    ```
+   Use `--force` only when the user explicitly confirms a hard branch delete (`-D`).
 
 ## Rules
 

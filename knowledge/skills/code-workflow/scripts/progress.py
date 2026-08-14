@@ -149,9 +149,25 @@ def fold(events: list[dict[str, Any]]) -> dict[str, Any]:
     for ev in events:
         op = ev.get("op")
         if op == "init":
+            # Every init starts a genuinely fresh run — reset all run-scoped
+            # state, then apply fields from this init event. Append-only ledger
+            # is preserved; fold just drops prior run state from the view.
+            state["goal"] = ""
+            state["worktree"] = ""
+            state["plan"] = ""
+            state["direction"] = ""
+            state["direction_confirmed"] = False
+            state["constraints"] = []
+            state["run"] = {s: "pending" for s in RUN_STAGES}
+            state["todos"] = {}
+            state["todo_order"] = []
             state["goal"] = ev.get("goal", "")
             state["worktree"] = ev.get("worktree", "")
-            state["plan"] = ev.get("plan", "") or state["plan"]
+            state["plan"] = ev.get("plan", "") or ""
+            if "direction" in ev:
+                state["direction"] = ev.get("direction", "") or ""
+            if "direction_confirmed" in ev:
+                state["direction_confirmed"] = bool(ev.get("direction_confirmed"))
             state["constraints"] = list(ev.get("constraints") or [])
             if "run" in ev and isinstance(ev["run"], dict):
                 for k, v in ev["run"].items():

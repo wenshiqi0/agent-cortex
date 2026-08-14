@@ -19,19 +19,19 @@ The user asks to:
 ## Rules
 
 1. **Destination is always `repositories/<name>/`.** Never clone or init into the
-   root, into `knowledge/`, or anywhere else.
-2. **Create `repositories/` if it does not exist** before the first repo:
+   root, into `knowledge/`, or anywhere else. The cortex CLI enforces this.
+2. **Cloning** an existing remote — use cortex (creates `repositories/` if needed,
+   derives `<name>` from the URL unless `--name` is set):
    ```sh
-   mkdir -p repositories
+   scripts/cortex repo clone <url> [--name <name>] [--dry-run]
    ```
-3. **Cloning** an existing remote:
+3. **Creating** a brand-new repo:
    ```sh
-   git clone <url> repositories/<name>
+   scripts/cortex repo init <name> [--dry-run]
    ```
-   Derive `<name>` from the repo name unless the user specifies one.
-4. **Creating** a brand-new repo:
+4. **Listing** repos/worktrees is inventory — do not invent a second lister:
    ```sh
-   mkdir -p repositories/<name> && git -C repositories/<name> init
+   bun run inventory --json
    ```
 5. Each repo under `repositories/` is **independent** — its own `.git`, its own
    `CLAUDE.md`/`AGENTS.md`/skills. agent-cortex does not track their contents.
@@ -43,3 +43,4 @@ The user asks to:
 - Do not add a repo as a git submodule of agent-cortex.
 - Do not place repos at the agent-cortex root or inside `knowledge/`.
 - Do not copy a repo's skills into `knowledge/` — they stay with the repo.
+- Do not hand-run `git clone` / `git init` outside `scripts/cortex repo …`.

@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"run usage-daily report"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}

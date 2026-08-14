@@ -23,9 +23,9 @@ python3 knowledge/skills/usage-daily/analyze_transcripts.py --hours 48 --json
 python3 knowledge/skills/usage-daily/analyze_transcripts.py --hours 24 --out /tmp/usage.md
 ```
 
-Defaults: `--hours 24`, transcripts root
-`~/.cursor/projects/Users-wenshiqi-Documents-agent-cortex/agent-transcripts`,
-markdown to stdout.
+Defaults: `--hours 24`; transcripts root auto-discovered from
+`~/.cursor/projects/*/agent-transcripts` (override with `--transcripts-root` or
+`CURSOR_TRANSCRIPTS_ROOT`); markdown to stdout.
 
 ## Output shape
 

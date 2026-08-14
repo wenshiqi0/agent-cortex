@@ -11,6 +11,7 @@
     "inventory": "bun scripts/cortex-inventory.js",
     "relink": "bun scripts/cli.js relink",
     "verify": "bun scripts/cli.js verify",
-    "list": "bun scripts/cli.js list"
+    "list": "bun scripts/cli.js list",
+    "test": "bun test tests/*.test.js"
   }
 }

@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { ROOT, KIND } from './config.js';
 
 function usage() {
@@ -22,8 +23,35 @@ function exists(p) {
   return fs.existsSync(p);
 }
 
-function rel(p) {
-  return path.relative(ROOT, p) || '.';
+function kindAt(root = ROOT) {
+  if (root === ROOT) return KIND;
+  const knowledge = path.join(root, 'knowledge');
+  return {
+    skill: {
+      builtinDir: path.join(knowledge, 'skills'),
+      externalDir: path.join(root, 'skills'),
+      lock: path.join(root, 'skills', 'skills-lock.json'),
+      toolDirs: [path.join(root, '.claude', 'skills'), path.join(root, '.agents', 'skills')],
+      kind: 'folder',
+      entryName: (name) => name,
+    },
+    agent: {
+      builtinDir: path.join(knowledge, 'agents'),
+      externalDir: path.join(root, 'agents'),
+      lock: path.join(root, 'agents', 'agents-lock.json'),
+      toolDirs: [
+        path.join(root, '.claude', 'agents'),
+        path.join(root, '.cursor', 'agents'),
+        path.join(root, '.opencode', 'agent'),
+      ],
+      kind: 'file',
+      entryName: (name) => name + '.md',
+    },
+  };
+}
+
+function rel(p, root = ROOT) {
+  return path.relative(root, p) || '.';
 }
 
 function sortedDirEntries(dir) {
@@ -41,7 +69,7 @@ function lstatKind(p) {
   return 'other';
 }
 
-function listResourceDir(dir, cfg) {
+function listResourceDir(dir, cfg, root) {
   const isFile = cfg.kind === 'file';
   return sortedDirEntries(dir)
     .filter((entry) => {
@@ -52,13 +80,13 @@ function listResourceDir(dir, cfg) {
       const fullPath = path.join(dir, entry.name);
       return {
         name: isFile ? entry.name.slice(0, -3) : entry.name,
-        path: rel(fullPath),
+        path: rel(fullPath, root),
         kind: lstatKind(fullPath),
       };
     });
 }
 
-function listGeneratedDir(dir, cfg) {
+function listGeneratedDir(dir, cfg, root) {
   const isFile = cfg.kind === 'file';
   return sortedDirEntries(dir)
     .filter((entry) => isFile ? entry.name.endsWith('.md') : true)
@@ -66,7 +94,7 @@ function listGeneratedDir(dir, cfg) {
       const fullPath = path.join(dir, entry.name);
       const item = {
         name: isFile ? entry.name.replace(/\.md$/, '') : entry.name,
-        path: rel(fullPath),
+        path: rel(fullPath, root),
         kind: lstatKind(fullPath),
       };
       if (item.kind === 'symlink') item.target = fs.readlinkSync(fullPath);
@@ -74,23 +102,23 @@ function listGeneratedDir(dir, cfg) {
     });
 }
 
-function listResources() {
+function listResources(root = ROOT) {
   const resources = {};
-  for (const [kind, cfg] of Object.entries(KIND)) {
+  for (const [kind, cfg] of Object.entries(kindAt(root))) {
     resources[kind + 's'] = {
-      builtin: listResourceDir(cfg.builtinDir, cfg),
-      external: listResourceDir(cfg.externalDir, cfg),
+      builtin: listResourceDir(cfg.builtinDir, cfg, root),
+      external: listResourceDir(cfg.externalDir, cfg, root),
       generated: cfg.toolDirs.map((dir) => ({
-        path: rel(dir),
-        entries: listGeneratedDir(dir, cfg),
+        path: rel(dir, root),
+        entries: listGeneratedDir(dir, cfg, root),
       })),
     };
   }
   return resources;
 }
 
-function listProjects() {
-  const reposDir = path.join(ROOT, 'repositories');
+export function listProjects(root = ROOT) {
+  const reposDir = path.join(root, 'repositories');
   const entries = sortedDirEntries(reposDir).filter((entry) => entry.isDirectory());
   const repositories = [];
   const worktrees = [];
@@ -102,7 +130,7 @@ function listProjects() {
         worktrees.push({
           repository: entry.name.slice(0, -'.worktrees'.length),
           name: wt.name,
-          path: rel(path.join(fullPath, wt.name)),
+          path: rel(path.join(fullPath, wt.name), root),
         });
       }
       continue;
@@ -110,23 +138,23 @@ function listProjects() {
 
     repositories.push({
       name: entry.name,
-      path: rel(fullPath),
+      path: rel(fullPath, root),
       hasGit: exists(path.join(fullPath, '.git')),
     });
   }
 
   return {
-    root: rel(reposDir),
+    root: rel(reposDir, root),
     repositories,
     worktrees,
   };
 }
 
-function buildInventory() {
+export function buildInventory(root = ROOT) {
   return {
-    root: ROOT,
-    resources: listResources(),
-    projects: listProjects(),
+    root,
+    resources: listResources(root),
+    projects: listProjects(root),
     searchRule: 'Search these explicit paths directly; do not rely on repo-wide grep/search that respects .gitignore.',
   };
 }
@@ -189,4 +217,5 @@ function main() {
   else printText(inventory);
 }
 
-main();
+const isCli = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isCli) main();

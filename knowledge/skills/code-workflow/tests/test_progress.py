@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / "progress.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "progress.py"
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -271,6 +271,72 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(after["run"], expected["run"])
         self.assertEqual(after["todo_order"], expected["todo_order"])
         self.assertEqual(after["todos"], expected["todos"])
+
+    def test_force_init_after_snapshot_resets_run_state(self) -> None:
+        """Forced init after compact must start a genuinely fresh run.
+
+        Fold sees snapshot then init; init must clear prior direction/plan/
+        todos and apply the new init's run statuses (preflight done).
+        """
+        direction = self.root / "direction.md"
+        direction.write_text("# direction\n", encoding="utf-8")
+
+        run("init", "--worktree", self.wt, "--goal", "old goal")
+        run(
+            "set-direction",
+            "--worktree",
+            self.wt,
+            "--file",
+            str(direction),
+        )
+        run(
+            "set-plan",
+            "--worktree",
+            self.wt,
+            "--plan",
+            "/tmp/old-plan.md",
+            "--mark-done",
+        )
+        run("add-todo", "--worktree", self.wt, "--id", "T1", "--title", "old todo")
+        self._complete_todo("T1")
+        run("compact", "--worktree", self.wt)
+
+        before_lines = [
+            ln for ln in self.ledger.read_text(encoding="utf-8").splitlines() if ln.strip()
+        ]
+        self.assertEqual(len(before_lines), 1)
+        self.assertEqual(json.loads(before_lines[0])["op"], "snapshot")
+
+        out = json.loads(
+            run(
+                "init",
+                "--worktree",
+                self.wt,
+                "--goal",
+                "new goal",
+                "--force",
+            ).stdout
+        )
+        self.assertTrue(out["ok"])
+
+        # Append-only: snapshot remains; new init is appended.
+        after_lines = [
+            ln for ln in self.ledger.read_text(encoding="utf-8").splitlines() if ln.strip()
+        ]
+        self.assertEqual(len(after_lines), 2)
+        self.assertEqual(json.loads(after_lines[0])["op"], "snapshot")
+        self.assertEqual(json.loads(after_lines[1])["op"], "init")
+
+        view = json.loads(run("show", "--worktree", self.wt, "--json").stdout)
+        self.assertEqual(view["goal"], "new goal")
+        self.assertEqual(view["plan"], "")
+        self.assertEqual(view["direction"], "")
+        self.assertFalse(view["direction_confirmed"])
+        self.assertEqual(view["todos"], [])
+        self.assertEqual(
+            view["run"],
+            {"preflight": "done", "plan": "pending", "closeout": "pending"},
+        )
 
     def test_compact_idempotent_skips_empty_archive(self) -> None:
         run("init", "--worktree", self.wt, "--goal", "g")

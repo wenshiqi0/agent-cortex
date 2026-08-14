@@ -370,5 +370,202 @@ class LoopMemoryTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 1)
 
 
+class DoctorTests(unittest.TestCase):
+    """Read-only `doctor` CLI — validates index/file consistency."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name) / "home"
+        self.session = "test-session"
+        self.session_dir = self.home / self.session
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_cli(
+        self, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["LOOP_MEMORY_HOME"] = str(self.home)
+        env["LOOP_MEMORY_SESSION"] = self.session
+        cmd = [sys.executable, str(SCRIPT), *args]
+        return subprocess.run(
+            cmd, capture_output=True, text=True, check=check, env=env
+        )
+
+    def init_loop(self, loop_id: str = "T1") -> dict:
+        out = self.run_cli(
+            "init",
+            loop_id,
+            "--repo",
+            "medeo-price",
+            "--worktree",
+            "/tmp/wt",
+            "--task",
+            "add pricing",
+        )
+        return json.loads(out.stdout)
+
+    def loop_file(self, loop_id: str = "T1") -> Path:
+        return self.session_dir / f"{loop_id}.json"
+
+    def index_file(self) -> Path:
+        return self.session_dir / "index.json"
+
+    def _snapshot_home(self) -> dict[str, str]:
+        """Path -> content for every file under the session home."""
+        out: dict[str, str] = {}
+        if not self.session_dir.exists():
+            return out
+        for path in sorted(self.session_dir.rglob("*")):
+            if path.is_file():
+                out[str(path.relative_to(self.session_dir))] = path.read_text(
+                    encoding="utf-8"
+                )
+        return out
+
+    def _assert_text_status_lines(self, stdout: str) -> list[str]:
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+        self.assertTrue(lines, f"doctor text output empty:\n{stdout!r}")
+        for line in lines:
+            self.assertRegex(
+                line,
+                r"^(OK|WARN|FAIL) \S+ .+",
+                msg=f"bad doctor line: {line!r}",
+            )
+        return lines
+
+    def _assert_json_payload(
+        self, stdout: str, *, expect_ok: bool
+    ) -> dict:
+        payload = json.loads(stdout)
+        self.assertIsInstance(payload, dict)
+        self.assertEqual(set(payload.keys()) & {"checks", "ok"}, {"checks", "ok"})
+        self.assertIsInstance(payload["checks"], list)
+        self.assertIsInstance(payload["ok"], bool)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def test_doctor_corrupt_index_exits_1(self) -> None:
+        self.session_dir.mkdir(parents=True)
+        self.index_file().write_text("{not-json", encoding="utf-8")
+        before = self._snapshot_home()
+
+        proc = self.run_cli("doctor", check=False)
+        self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+        lines = self._assert_text_status_lines(proc.stdout)
+        self.assertTrue(
+            any(ln.startswith("FAIL ") for ln in lines),
+            f"expected FAIL line: {proc.stdout}",
+        )
+
+        json_proc = self.run_cli("doctor", "--json", check=False)
+        self.assertEqual(json_proc.returncode, 1, msg=json_proc.stdout + json_proc.stderr)
+        self._assert_json_payload(json_proc.stdout, expect_ok=False)
+
+        self.assertEqual(self._snapshot_home(), before, "doctor must be read-only")
+
+    def test_doctor_missing_indexed_loop_file_exits_1(self) -> None:
+        self.init_loop("T1")
+        self.loop_file("T1").unlink()
+        before = self._snapshot_home()
+
+        proc = self.run_cli("doctor", check=False)
+        self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+        lines = self._assert_text_status_lines(proc.stdout)
+        self.assertTrue(
+            any(ln.startswith("FAIL ") for ln in lines),
+            f"expected FAIL line: {proc.stdout}",
+        )
+
+        json_proc = self.run_cli("doctor", "--json", check=False)
+        self.assertEqual(json_proc.returncode, 1)
+        self._assert_json_payload(json_proc.stdout, expect_ok=False)
+
+        self.assertEqual(self._snapshot_home(), before, "doctor must be read-only")
+
+    def test_doctor_bad_stage_key_exits_1(self) -> None:
+        self.init_loop("T1")
+        path = self.loop_file("T1")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("stages", {})["BAD"] = {"notes": "invalid stage"}
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        before = self._snapshot_home()
+
+        proc = self.run_cli("doctor", check=False)
+        self.assertEqual(proc.returncode, 1, msg=proc.stdout + proc.stderr)
+        lines = self._assert_text_status_lines(proc.stdout)
+        self.assertTrue(
+            any(ln.startswith("FAIL ") for ln in lines),
+            f"expected FAIL line: {proc.stdout}",
+        )
+
+        self.assertEqual(self._snapshot_home(), before, "doctor must be read-only")
+
+    def test_doctor_orphan_loop_file_warns_exit_0(self) -> None:
+        self.init_loop("T1")
+        orphan = self.session_dir / "ORPHAN.json"
+        orphan.write_text(
+            json.dumps(
+                {
+                    "loop_id": "ORPHAN",
+                    "repo": "medeo-price",
+                    "worktree": "/tmp/wt",
+                    "task": "orphan task",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "stages": {},
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        before = self._snapshot_home()
+
+        proc = self.run_cli("doctor", check=False)
+        self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        lines = self._assert_text_status_lines(proc.stdout)
+        self.assertTrue(
+            any(ln.startswith("WARN ") for ln in lines),
+            f"expected WARN line for orphan: {proc.stdout}",
+        )
+        self.assertFalse(
+            any(ln.startswith("FAIL ") for ln in lines),
+            f"orphan must not FAIL: {proc.stdout}",
+        )
+
+        json_proc = self.run_cli("doctor", "--json", check=False)
+        self.assertEqual(json_proc.returncode, 0)
+        payload = self._assert_json_payload(json_proc.stdout, expect_ok=True)
+        self.assertTrue(payload["checks"], "json checks should be non-empty")
+
+        self.assertEqual(self._snapshot_home(), before, "doctor must be read-only")
+
+    def test_doctor_healthy_home_exits_0(self) -> None:
+        self.init_loop("T1")
+        self.run_cli(
+            "put", "T1", "--stage", "WT", "--patch", '{"explored": true}'
+        )
+        before = self._snapshot_home()
+
+        proc = self.run_cli("doctor", check=False)
+        self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        lines = self._assert_text_status_lines(proc.stdout)
+        self.assertTrue(
+            any(ln.startswith("OK ") for ln in lines),
+            f"expected OK line: {proc.stdout}",
+        )
+        self.assertFalse(
+            any(ln.startswith("FAIL ") for ln in lines),
+            f"healthy home must not FAIL: {proc.stdout}",
+        )
+
+        json_proc = self.run_cli("doctor", "--json", check=False)
+        self.assertEqual(json_proc.returncode, 0, msg=json_proc.stdout + json_proc.stderr)
+        self._assert_json_payload(json_proc.stdout, expect_ok=True)
+
+        self.assertEqual(self._snapshot_home(), before, "doctor must be read-only")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,7 @@ scripts/cortex install agent npm @scope/some-agent
 scripts/cortex uninstall lark-base
 
 # maintenance
+scripts/cortex refresh <name> [--dry-run]  # re-fetch one external from its lock entry
 scripts/cortex relink          # rebuild ALL tool symlinks (builtin + external)
 scripts/cortex verify [name]   # recompute hashes vs lock; drift -> exit 1
 scripts/cortex list            # builtin [builtin] + external [github:…]
@@ -66,7 +67,7 @@ resource: `source`, `sourceType` (`github`/`git`/`npm`), optional `ref`,
 
 - Never install into `.claude/...` / `knowledge/` directly — use the CLI.
 - Installing an external = stored + hashed + linked in one step (live immediately).
-- `verify` DRIFT means the on-disk external was edited; re-install to update its
-  hash, or `install` (bootstrap) to overwrite missing ones from source.
+- `verify` DRIFT means the on-disk external was edited; recover with `refresh`
+  (re-fetch from lock) or bootstrap `install` when the external is missing.
 - A lock pins source + ref + content hash, not a commit SHA: bootstrap refetches
   the latest of that ref.

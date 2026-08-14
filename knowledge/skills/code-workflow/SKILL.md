@@ -3,13 +3,14 @@ name: code-workflow
 description: >-
   Use when developing agent-cortex itself or any repositories/ subproject —
   features, bug fixes, scripts, skill mechanization, or when the user asks for
-  code-workflow / a multi-model plan-test-implement loop with subagents.
+  code-workflow / a multi-agent plan-test-implement loop with subagents.
 ---
 
 # Code Workflow
 
 Orchestrator-only. Main never writes code/tests/plans. Execution agents are
 protocol-blind and receive file paths only. Facade: `scripts/workflow.py`.
+See `README.md` for architecture, lifecycle, layout, and verification.
 
 ## When it triggers
 
@@ -40,36 +41,39 @@ Full Loop persists `direction.md` only after user confirmation, before Plan
 - `accept-stage --id T --stage S --report PATH [...]` — mark + fold + snapshot
 - `next --json` — print dispatch contract (paths only; never spawns)
 - `show [--json]` — folded ledger state
-- `closeout` — all todos done, loops archived, compact
+- `doctor [--json]` — read-only ledger/artifact consistency (exit 1 on FAIL)
+- `test [--tests-dir DIR]` — run every `test_*.py` in skill tests/ (or DIR)
+- `closeout [--verify-cmd CMD]` — optional pre-checks, then compact (CMD repeatable)
 - `fast --kind code|prose --goal G --files F --verify V` — stateless dispatch
 
 Details: `python3 …/workflow.py <cmd> --help`.
 
-## Role → model (primary / fallback)
+## Role → agent
 
-| Role / kind | primary (`model`) | fallback (`fallback_models`) |
-|-------------|-------------------|------------------------------|
-| plan | `kimi-k3-max` | `[]` |
-| test_writer | `kimi-k3-max` | `["cursor-grok-4.5-high"]` |
-| verify_red | `kimi-k3-max` | `[]` |
-| implement | `kimi-k3-max` | `["cursor-grok-4.5-high"]` |
-| verify_green | `kimi-k3-max` | `[]` |
-| fast_coder code | `kimi-k3-max` | `["cursor-grok-4.5-high"]` |
-| fast_coder prose | `kimi-k3-max` | `[]` |
+| Role / kind | Agent |
+|-------------|-------|
+| plan | `code-workflow-planner` |
+| plan (if primary unavailable) | `code-workflow-planner-backup` |
+| test_write | `code-workflow-test-writer` |
+| verify_red / verify_green | `code-workflow-verifier` |
+| implement | `code-workflow-implementer` |
+| fast code | `code-workflow-implementer` |
+| fast prose | `code-workflow-prose-editor` |
 
-Code-writing roles: K3 primary, Grok fallback when K3 unavailable. Verify /
-plan / prose: K3 only.
+Agent files live under `knowledge/agents/` and are linked into `.cursor/agents/`.
 
 ## Role boundary
 
 - Main orchestrates only; never writes code, tests, or plans.
-- Plan expands `direction.md` into plan + briefs.
+- Planner expands the direction document into plan + briefs.
 - Execution agents stay protocol-blind; hand paths only (brief / reports /
   snapshots), never paste artifact bodies or this protocol.
 
 ## Hard safety
 
-- Never omit `model` or `fallback_models` on dispatch.
-- Never substitute models outside the emitted candidate list.
+- Dispatch by role-agent name only.
+- Plan stage: try `code-workflow-planner` first; if that agent is unavailable,
+  dispatch `code-workflow-planner-backup` (same plan/brief scope). Do not substitute
+  other roles' agents for plan.
 - Never hand-edit `progress.jsonl`; use `workflow.py` / `progress.py`.
 - Hand off direction and snapshots by path only; do not auto-spawn.

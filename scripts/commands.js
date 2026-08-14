@@ -3,6 +3,7 @@
 //   install  (no args)  -> bootstrap: relink builtin + restore externals from lock
 //   install  <kind> <github|git|npm> <source> [name] [--ref r] [--path p]
 //   uninstall <name>    -> delete external resource + link(s) + lock entry
+//   refresh  <name>     -> re-fetch one external from its lock entry
 //   relink              -> rebuild ALL tool symlinks (builtin + external)
 //   verify  [name]      -> recompute hashes vs lock, report drift (exit 1 on drift)
 //   list                -> list builtin + external, both kinds
@@ -17,9 +18,37 @@ import {
 } from './resource.js';
 import { fetchGithub, fetchGit, fetchNpm } from './fetch.js';
 
+/** Rebuild KIND paths under an injectable root (tests / isolation). */
+function kindAt(root = ROOT) {
+  if (root === ROOT) return KIND;
+  const knowledge = path.join(root, 'knowledge');
+  return {
+    skill: {
+      builtinDir: path.join(knowledge, 'skills'),
+      externalDir: path.join(root, 'skills'),
+      lock: path.join(root, 'skills', 'skills-lock.json'),
+      toolDirs: [path.join(root, '.claude', 'skills'), path.join(root, '.agents', 'skills')],
+      kind: 'folder',
+      entryName: (name) => name,
+    },
+    agent: {
+      builtinDir: path.join(knowledge, 'agents'),
+      externalDir: path.join(root, 'agents'),
+      lock: path.join(root, 'agents', 'agents-lock.json'),
+      toolDirs: [
+        path.join(root, '.claude', 'agents'),
+        path.join(root, '.cursor', 'agents'),
+        path.join(root, '.opencode', 'agent'),
+      ],
+      kind: 'file',
+      entryName: (name) => name + '.md',
+    },
+  };
+}
+
 // Install ONE external resource from a source. Returns the resolved name.
-function installOne(kindArg, sourceType, source, name, ref, explicitPath) {
-  const cfg = KIND[kindArg];
+function installOne(kindArg, sourceType, source, name, ref, explicitPath, root = ROOT) {
+  const cfg = kindAt(root)[kindArg];
   if (!cfg) die('install <skill|agent> <github|git|npm> <source> [name] [--ref r] [--path p]');
   if (!sourceType || !source) die('install ' + kindArg + ' <github|git|npm> <source> [name]');
 
@@ -49,7 +78,7 @@ function installOne(kindArg, sourceType, source, name, ref, explicitPath) {
     };
     writeLock(cfg, lock);
     linkResource(cfg, name, dest);
-    console.log(`installed ${kindArg} ${name} -> ${path.relative(ROOT, dest)}  (${hash.slice(0, 19)}…)`);
+    console.log(`installed ${kindArg} ${name} -> ${path.relative(root, dest)}  (${hash.slice(0, 19)}…)`);
     return name;
   } finally { rmrf(tmpRoot); }
 }
@@ -77,7 +106,42 @@ export function cmdInstall(argv) {
   // no positional args -> bootstrap; otherwise install one external
   if (argv._.length === 0) return bootstrap();
   const [kindArg, sourceType, source, name] = argv._;
-  installOne(kindArg, sourceType, source, name || null, argv.ref, argv.path);
+  installOne(kindArg, sourceType, source, name || null, argv.ref, argv.path, argv.root ?? ROOT);
+}
+
+/** Re-fetch one external from its lock entry (overwrite + rehash + relink). */
+export function cmdRefresh(argv) {
+  const name = argv._[0];
+  if (!name) die('refresh <name> [--dry-run]');
+  const root = argv.root ?? ROOT;
+  const kinds = kindAt(root);
+
+  let kindArg = null;
+  let entry = null;
+  for (const k of Object.keys(kinds)) {
+    const lock = readLock(kinds[k]);
+    if (lock.items[name]) {
+      kindArg = k;
+      entry = lock.items[name];
+      break;
+    }
+  }
+  if (!entry) die('not found in any lock: ' + name);
+
+  const cfg = kinds[kindArg];
+  const isFile = cfg.kind === 'file';
+  const dest = path.join(cfg.externalDir, isFile ? name + '.md' : name);
+
+  if (argv.dryRun) {
+    console.log(`kind: ${kindArg}`);
+    console.log(`source: ${entry.source}`);
+    if (entry.ref) console.log(`ref: ${entry.ref}`);
+    console.log(`resourcePath: ${entry.resourcePath}`);
+    console.log(`dest: ${dest}`);
+    return;
+  }
+
+  installOne(kindArg, entry.sourceType, entry.source, name, entry.ref, entry.resourcePath, root);
 }
 
 // Rebuild ALL tool links from scratch: builtin (knowledge/) + external (./).

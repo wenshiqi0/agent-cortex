@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -16,10 +17,52 @@ from pathlib import Path
 
 CATEGORIES = ("medeo-dev", "mcap-lane-model-test", "code-workflow", "other")
 
-DEFAULT_TRANSCRIPTS_ROOT = (
-    "/Users/wenshiqi/.cursor/projects/"
-    "Users-wenshiqi-Documents-agent-cortex/agent-transcripts"
-)
+
+def cwd_project_slug(cwd: Path) -> str:
+    """Map absolute cwd to Cursor project dir slug: strip leading /, / -> -."""
+    abs_cwd = cwd.resolve() if not cwd.is_absolute() else cwd
+    return str(abs_cwd).lstrip("/").replace("/", "-")
+
+
+def resolve_transcripts_root(
+    explicit: Path | str | None,
+    env: dict,
+    home: Path | str,
+    cwd: Path | str,
+) -> Path:
+    """Resolve agent-transcripts root: explicit > env > glob under home."""
+    if explicit is not None:
+        return Path(explicit)
+
+    env_val = env.get("CURSOR_TRANSCRIPTS_ROOT")
+    if env_val:
+        return Path(env_val)
+
+    home_path = Path(home)
+    cwd_path = Path(cwd)
+    matches = sorted(home_path.glob(".cursor/projects/*/agent-transcripts"))
+    if not matches:
+        print(
+            f"error: no agent-transcripts under {home_path / '.cursor' / 'projects'}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if len(matches) == 1:
+        return matches[0]
+
+    slug = cwd_project_slug(cwd_path)
+    for match in matches:
+        if match.parent.name == slug:
+            return match
+
+    print(
+        "error: multiple agent-transcripts roots; none match cwd slug "
+        f"{slug!r}. candidates:",
+        file=sys.stderr,
+    )
+    for match in matches:
+        print(f"  {match}", file=sys.stderr)
+    sys.exit(1)
 
 _USER_QUERY_RE = re.compile(
     r"</?user_query>", re.IGNORECASE
@@ -401,13 +444,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--transcripts-root",
         type=Path,
-        default=Path(DEFAULT_TRANSCRIPTS_ROOT),
+        default=None,
     )
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    root = args.transcripts_root.expanduser()
+    root = resolve_transcripts_root(
+        args.transcripts_root,
+        os.environ,
+        Path.home(),
+        Path.cwd(),
+    ).expanduser()
     if not root.is_dir():
         print(f"error: transcripts-root not found: {root}", file=sys.stderr)
         return 1

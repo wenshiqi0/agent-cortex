@@ -21,12 +21,7 @@ Do not expose short-term or long-term memory terms in CLI workflows unless discu
 
 ## Environment
 
-Memory structuring is model-backed. `mrain` loads provider settings from environment variables through `mrain-config`.
-
-Provider priority:
-
-1. Anthropic-compatible
-2. OpenAI-compatible
+Memory structuring is model-backed. `mrain` loads provider settings from environment variables through `mrain-config`. Provider priority: Anthropic-compatible first, then OpenAI-compatible.
 
 Anthropic-compatible variables:
 
@@ -52,31 +47,7 @@ No config file is required for `memory memorize`.
 
 ## Local Storage
 
-SQLite database path:
-
-```text
-$HOME/.mrain/memory.sqlite3
-```
-
-Main table:
-
-```text
-memories
-```
-
-Columns:
-
-```text
-id
-created_at
-content
-summary
-tags
-source_kind
-source_model
-```
-
-`tags` is a comma-joined string of tag values.
+SQLite database: `$HOME/.mrain/memory.sqlite3`, main table `memories` (`tags` is a comma-joined string of tag values).
 
 ## Source Kind
 
@@ -92,25 +63,7 @@ internal  memory was synthesized by mrain itself
 
 ## Common Commands
 
-Install or verify `mrain`:
-
-```sh
-command -v mrain
-mrain --help
-```
-
-If `mrain` is not found, install the `mrain` binary into a directory on `PATH`, such as:
-
-```text
-$HOME/.local/bin/mrain
-/usr/local/bin/mrain
-```
-
-Write memory:
-
-```sh
-mrain memory memorize --source-kind agent --source-model "claude-sonnet-4" --text "记住：CLI 只暴露 memory 命令"
-```
+If `mrain` is not found, install the binary onto `PATH` (e.g. `$HOME/.local/bin/mrain` or `/usr/local/bin/mrain`). Prefer `scripts/doctor.py` for availability checks (see Verification).
 
 Recall memory:
 
@@ -130,12 +83,6 @@ Summarize recurring patterns from all memory summaries:
 mrain memory summarize-patterns
 ```
 
-Inspect DB schema:
-
-```sh
-sqlite3 "$HOME/.mrain/memory.sqlite3" "PRAGMA table_info(memories);"
-```
-
 Inspect recent memory rows:
 
 ```sh
@@ -145,39 +92,17 @@ sqlite3 "$HOME/.mrain/memory.sqlite3" \
 
 ## Verification
 
-Verify CLI is available:
+Read-only doctor (binary, help, provider env, storage; never creates `$HOME/.mrain`):
 
 ```sh
-mrain --help
+python3 knowledge/skills/mrain/scripts/doctor.py
+python3 knowledge/skills/mrain/scripts/doctor.py --json
 ```
 
-Verify memory write path:
+Gated smoke (writes one memory row via `memorize` + `recall` when a provider API key is set; otherwise `SKIP smoke`):
 
 ```sh
-mrain memory memorize --source-kind agent --source-model "claude-sonnet-4" --text "记住：mrain 使用 memory 命令写入记忆"
+python3 knowledge/skills/mrain/scripts/doctor.py --smoke
 ```
 
-Verify recall path:
-
-```sh
-mrain memory recall --query "mrain"
-```
-
-Verify full memory lookup:
-
-```sh
-mrain memory remember --id 1
-```
-
-Verify pattern summarization:
-
-```sh
-mrain memory summarize-patterns
-```
-
-Verify SQLite storage:
-
-```sh
-sqlite3 "$HOME/.mrain/memory.sqlite3" \
-  "SELECT created_at, content, summary, tags, source_kind, source_model FROM memories ORDER BY created_at DESC LIMIT 5;"
-```
+Exit codes: `2` missing binary, `1` any `FAIL` check, `0` otherwise (`WARN`/`SKIP` do not change the exit code).

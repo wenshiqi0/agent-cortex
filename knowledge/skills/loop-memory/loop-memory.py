@@ -14,6 +14,7 @@ Ops:
   snapshot       meta + stages through a given stage
   list           list loops in the current session
   archive        copy loop out and remove from session
+  doctor         read-only index/file consistency checks
 
 Storage:
   $LOOP_MEMORY_HOME or ${TMPDIR:-/tmp}/loop-memory
@@ -419,6 +420,146 @@ def cmd_archive(args: argparse.Namespace) -> None:
     ack(loop_id)
 
 
+REQUIRED_META = ("loop_id", "repo", "worktree", "task")
+
+
+def _doctor_check(status: str, name: str, detail: str) -> dict[str, str]:
+    return {"status": status, "name": name, "detail": detail}
+
+
+def run_doctor_checks() -> list[dict[str, str]]:
+    """Read-only consistency checks against the active session home."""
+    checks: list[dict[str, str]] = []
+    d = session_dir()
+    idx = index_path()
+    indexed_ids: set[str] = set()
+    index_readable = True
+
+    if idx.exists():
+        try:
+            raw = load_json(idx)
+        except (json.JSONDecodeError, OSError) as e:
+            checks.append(
+                _doctor_check("FAIL", "index", f"index.json corrupt: {e}")
+            )
+            index_readable = False
+            raw = None
+        if index_readable:
+            if (
+                isinstance(raw, dict)
+                and "loops" in raw
+                and isinstance(raw["loops"], dict)
+            ):
+                loops = raw["loops"]
+            elif isinstance(raw, dict):
+                loops = raw
+            else:
+                checks.append(
+                    _doctor_check(
+                        "FAIL", "index", "index.json must be a JSON object"
+                    )
+                )
+                index_readable = False
+                loops = {}
+            if index_readable:
+                indexed_ids = set(loops.keys())
+                checks.append(
+                    _doctor_check("OK", "index", "index.json parses")
+                )
+    else:
+        checks.append(_doctor_check("OK", "index", "index.json absent"))
+
+    if index_readable:
+        for lid in sorted(indexed_ids):
+            path = d / f"{lid}.json"
+            if path.is_file():
+                checks.append(
+                    _doctor_check("OK", "indexed-file", f"{lid}.json present")
+                )
+            else:
+                checks.append(
+                    _doctor_check(
+                        "FAIL", "indexed-file", f"missing loop file for {lid}"
+                    )
+                )
+
+    for path in scan_loop_files():
+        try:
+            data = load_json(path)
+        except (json.JSONDecodeError, OSError) as e:
+            checks.append(
+                _doctor_check("FAIL", "loop-parse", f"{path.name}: {e}")
+            )
+            continue
+        if not isinstance(data, dict):
+            checks.append(
+                _doctor_check(
+                    "FAIL", "loop-meta", f"{path.name}: not a JSON object"
+                )
+            )
+            continue
+        missing = [k for k in REQUIRED_META if k not in data]
+        if missing:
+            checks.append(
+                _doctor_check(
+                    "FAIL",
+                    "loop-meta",
+                    f"{path.name}: missing {', '.join(missing)}",
+                )
+            )
+        else:
+            checks.append(
+                _doctor_check("OK", "loop-meta", f"{path.name} meta ok")
+            )
+
+        stages = data.get("stages", {})
+        if stages is None:
+            stages = {}
+        if not isinstance(stages, dict):
+            checks.append(
+                _doctor_check(
+                    "FAIL", "stages", f"{path.name}: stages not an object"
+                )
+            )
+        else:
+            bad = [k for k in stages if k not in STAGES]
+            if bad:
+                checks.append(
+                    _doctor_check(
+                        "FAIL",
+                        "stages",
+                        f"{path.name}: invalid stage keys {', '.join(bad)}",
+                    )
+                )
+            else:
+                checks.append(
+                    _doctor_check("OK", "stages", f"{path.name} stages ok")
+                )
+
+        if index_readable and path.stem not in indexed_ids:
+            checks.append(
+                _doctor_check(
+                    "WARN",
+                    "orphan",
+                    f"{path.name} not in index (reindexable)",
+                )
+            )
+
+    return checks
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    checks = run_doctor_checks()
+    has_fail = any(c["status"] == "FAIL" for c in checks)
+    ok = not has_fail
+    if args.json:
+        print(json.dumps({"checks": checks, "ok": ok}, ensure_ascii=False))
+    else:
+        for c in checks:
+            print(f"{c['status']} {c['name']} {c['detail']}")
+    sys.exit(1 if has_fail else 0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="loop-memory.py", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -484,6 +625,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("loop_id")
     sp.add_argument("--to", required=True)
     sp.set_defaults(func=cmd_archive)
+
+    sp = sub.add_parser(
+        "doctor", help="read-only index/file consistency checks"
+    )
+    sp.add_argument(
+        "--json",
+        action="store_true",
+        help="emit JSON {checks, ok} instead of text lines",
+    )
+    sp.set_defaults(func=cmd_doctor)
 
     return p
 

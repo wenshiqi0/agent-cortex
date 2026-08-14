@@ -25,19 +25,25 @@ or updates the PR, and returns stable JSON.
 
 ## Required Preparation
 
-Run these from the repo root before writing PR text:
+Run the read-only prepare command from the repo root before writing PR text.
+Do not hand-run the git status/diff/log triple.
 
 ```sh
-git status --short
-git diff -- <path>...
-git log -5 --oneline
+bun scripts/submit-pr.js prepare \
+  --path knowledge/skills/submitting-prs/SKILL.md \
+  --path scripts/submit-pr.js
 ```
+
+Read the JSON (`status: "prepare"`) for `branch`, `status_short`, `diff`
+(staged + unstaged vs `HEAD`), `log`, and `sensitive_flags`. Then write the
+title / commit message / PR body and call the submit command below.
 
 Rules:
 
 - Never submit all changes by default. Pass one `--path` per intended path.
 - Do not include `.env`, credentials, private keys, tokens, or generated secrets
   unless the user explicitly asked and `--allow-sensitive` is justified.
+  `prepare` flags sensitive-looking paths in `sensitive_flags` instead of rejecting them.
 - If there is an existing PR for the branch, the script appends the new body under
   `## Updates` instead of replacing the previous description.
 - If no existing PR exists, the script creates one with the generated body.

@@ -143,22 +143,48 @@ export function buildCommandPlan(args, branch, hasExistingPr) {
   return plan;
 }
 
-function runCommand(command, { check = true, capture = true } = {}) {
-  const result = spawnSync(command[0], command.slice(1), {
-    encoding: "utf8",
-    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
-  });
-
-  if (check && result.status !== 0) {
-    const detail = (result.stderr || result.stdout || `exit code ${result.status}`).trim();
-    throw new SubmitPrError(`command failed: ${command.join(" ")}: ${detail}`);
-  }
-  return result;
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
 }
 
-function commandOutput(command) {
-  const result = runCommand(command);
-  return (result.stdout || "").trim();
+function runCommand(command, { check = true, capture = true, cwd } = {}) {
+  if (!capture) {
+    const result = spawnSync(command[0], command.slice(1), {
+      cwd,
+      stdio: "inherit",
+    });
+    if (check && result.status !== 0) {
+      throw new SubmitPrError(`command failed: ${command.join(" ")}: exit code ${result.status}`);
+    }
+    return result;
+  }
+
+  // Capture via shell redirects + file read. Under `bun test tests/...` the runner
+  // may open so many monorepo test files that pipe-based spawnSync stdout is empty
+  // (exit 0) while side effects still work; file redirects remain reliable.
+  const id = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const outFile = path.join(os.tmpdir(), `submit-pr-out-${id}.txt`);
+  const errFile = path.join(os.tmpdir(), `submit-pr-err-${id}.txt`);
+  try {
+    const shellCmd =
+      `${command.map(shellQuote).join(" ")} >${shellQuote(outFile)} 2>${shellQuote(errFile)}`;
+    const result = spawnSync("sh", ["-c", shellCmd], { cwd, encoding: "utf8" });
+    const stdout = fs.existsSync(outFile) ? fs.readFileSync(outFile, "utf8") : "";
+    const stderr = fs.existsSync(errFile) ? fs.readFileSync(errFile, "utf8") : "";
+    if (check && result.status !== 0) {
+      const detail = (stderr || stdout || `exit code ${result.status}`).trim();
+      throw new SubmitPrError(`command failed: ${command.join(" ")}: ${detail}`);
+    }
+    return { ...result, stdout, stderr };
+  } finally {
+    fs.rmSync(outFile, { force: true });
+    fs.rmSync(errFile, { force: true });
+  }
+}
+
+function commandOutput(command, { cwd } = {}) {
+  const result = runCommand(command, { cwd });
+  return (result.stdout || "").trimEnd();
 }
 
 function currentBranch() {
@@ -218,6 +244,39 @@ function ensureStagedChanges() {
   }
 }
 
+export function prepare({ paths, cwd = process.cwd() } = {}) {
+  // allowSensitive=true: broad/absolute still rejected; sensitive paths are flagged only.
+  validatePaths(paths, true);
+
+  const sensitive_flags = Object.fromEntries(paths.map((p) => [p, isSensitivePath(p)]));
+  const branch = commandOutput(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd });
+  const status_short = commandOutput(["git", "status", "--short", "--", ...paths], { cwd });
+  // git diff HEAD includes staged AND unstaged changes relative to HEAD.
+  const diff = commandOutput(["git", "diff", "HEAD", "--", ...paths], { cwd });
+  const log = commandOutput(["git", "log", "-5", "--oneline"], { cwd });
+
+  return {
+    status: "prepare",
+    branch,
+    paths,
+    sensitive_flags,
+    status_short,
+    diff,
+    log,
+  };
+}
+
+function parsePrepareArgs(argv) {
+  const paths = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--path") paths.push(requireValue(argv, ++i, arg));
+    else throw new SubmitPrError(`unknown argument: ${arg}`);
+  }
+  if (paths.length === 0) throw new SubmitPrError("missing required argument: --path");
+  return paths;
+}
+
 export function execute(args) {
   validatePaths(args.paths, args.allowSensitive);
   const body = readBodyFile(args.bodyFile);
@@ -273,6 +332,12 @@ export function execute(args) {
 
 export function main(argv = process.argv.slice(2)) {
   try {
+    if (argv[0] === "prepare") {
+      const paths = parsePrepareArgs(argv.slice(1));
+      const result = prepare({ paths });
+      console.log(JSON.stringify(result, null, 2));
+      return 0;
+    }
     const args = parseArgs(argv);
     const result = execute(args);
     console.log(JSON.stringify(result, null, 2));
